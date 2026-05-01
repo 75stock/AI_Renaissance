@@ -150,6 +150,15 @@ python main.py --stock 000001
 
 ---
 
+## 开发文档
+
+- `docs/GIT_WORKFLOW.md` — Git 小白协作指南，从安装 Git 到提交 PR。
+- `docs/CODING_AGENT_GUIDE.md` — Coding Agent 使用指南，说明工具选项、模型接入方式和使用边界。
+- `docs/AGENT_GUIDE.md` — Agent 开发指南，小白只需要实现 `analyze()` 方法。
+- `docs/TEAM.md` — 团队分工与协作原则。
+
+---
+
 ## 项目结构
 
 ```
@@ -167,6 +176,8 @@ AIRenaissance/
 │   └── engine.py
 │
 ├── docs/                    # 文档
+│   ├── GIT_WORKFLOW.md     # Git 小白协作指南
+│   ├── CODING_AGENT_GUIDE.md # Coding Agent 使用指南
 │   ├── AGENT_MATRIX.md     # 完整Agent矩阵
 │   └── AGENT_GUIDE.md      # Agent开发指南（小白友好）
 │
