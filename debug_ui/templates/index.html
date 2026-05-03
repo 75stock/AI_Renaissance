@@ -588,28 +588,20 @@ function renderSignal(sig, agentName, stockCode) {
 
   let metaHtml = "";
   if (sig.meta && Object.keys(sig.meta).length) {
+    const fmt = v => {
+      if (v === null || v === undefined) return "—";
+      if (typeof v === "object") return Array.isArray(v) ? `(${v.length} 项)` : JSON.stringify(v, null, 0);
+      return v;
+    };
     metaHtml = '<div class="signal-detail-grid">' +
-      Object.entries(sig.meta).map(([k,v]) => {
-        let display = v;
-        if (Array.isArray(v)) {
-          if (v.length > 0 && typeof v[0] === "object") {
-            display = v.map(item => {
-              if (typeof item === "object" && item !== null) {
-                return Object.entries(item).map(([ik,iv]) => `${ik}: ${iv}`).join(" | ");
-              }
-              return String(item);
-            }).join("\n");
-          } else {
-            display = v.join(", ");
-          }
-        } else if (typeof v === "object" && v !== null) {
-          display = JSON.stringify(v, null, 2);
-        }
-        return `<div class="detail-item">
-           <div class="detail-label">${k}</div>
-           <div class="detail-value" style="white-space:pre-wrap;">${display}</div>
-         </div>`;
-      }).join("") +
+      Object.entries(sig.meta)
+        .filter(([k]) => k !== "reasoning_steps")
+        .map(([k,v]) =>
+          `<div class="detail-item">
+             <div class="detail-label">${k}</div>
+             <div class="detail-value">${fmt(v)}</div>
+           </div>`
+        ).join("") +
       "</div>";
   }
 
