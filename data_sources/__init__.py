@@ -6,6 +6,7 @@ data_sources - 统一数据层（开发3组）
 """
 
 from .base import DataSourceBase
+from .akshare import AkshareDataSource
 from .cninfo import CninfoDataSource
 from .eastmoney import EastMoneyDataSource
 from .eastmoney_guba import EastMoneyGubaDataSource
@@ -15,6 +16,7 @@ from .industry_sentiment import IndustrySentimentDataSource
 __all__ = [
     "CninfoDataSource",
     "DataSourceBase",
+    "AkshareDataSource",
     "EastMoneyDataSource",
     "EastMoneyGubaDataSource",
     "MarketSentimentDataSource",

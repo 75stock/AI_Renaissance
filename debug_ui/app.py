@@ -265,15 +265,52 @@ DATA_SKILLS = {
         "module": "skills.data.tencent_technical.scripts.fetch_kline",
         "function": "fetch_kline_with_indicators",
         "default_params": {"stock_code": "600519", "k_type": "day", "num": 60},
+        "params_example": {"k_type": "day", "num": 60},
+        "param_docs": {
+            "k_type": "K线周期；可选 day / week / month / m1 / m5 / m15 / m30 / m60",
+            "num": "拉取条数；日K 最多 640，分钟K 最多 320",
+        },
         "description": "获取K线数据（OHLCV）+ 技术指标（MA/BOLL/RSI）",
-        "result_action": "wrap_result",
+        "result_type": "kline",
+        "requires_stock": True,
     },
     "东方财富财务": {
         "module": "data_sources.eastmoney",
         "class": "EastMoneyDataSource",
         "test_method": "get_financial_data",
         "default_params": {"stock_code": "600519"},
+        "params_example": {},
+        "param_docs": {},
         "description": "获取三大财务报表（资产负债表/利润表/现金流量表）",
+        "result_type": "json",
+        "requires_stock": True,
+    },
+    "AkShare 资金流全景": {
+        "module": "data_sources.akshare",
+        "class": "AkshareDataSource",
+        "test_method": "get_fundflow_snapshot",
+        "default_params": {
+            "stock_code": "600519",
+            "indicator": "今日",
+            "flow_limit": 10,
+            "sector_top_n": 10,
+            "concept_limit": 10,
+        },
+        "params_example": {
+            "indicator": "今日",
+            "flow_limit": 10,
+            "sector_top_n": 10,
+            "concept_limit": 10,
+        },
+        "param_docs": {
+            "indicator": "板块资金统计口径；可选 今日 / 5日 / 10日",
+            "flow_limit": "个股资金流与大盘资金流返回最近多少条记录",
+            "sector_top_n": "行业资金榜、概念资金榜各展示前多少条",
+            "concept_limit": "个股概念标签最多返回多少条",
+        },
+        "description": "一次返回个股基础信息、个股主力资金、相关板块资金、大盘主力资金与北向资金概览",
+        "result_type": "json",
+        "requires_stock": True,
     },
 }
 
@@ -287,6 +324,10 @@ def list_data_skills():
             "name": name,
             "description": info.get("description", ""),
             "default_params": info.get("default_params", {}),
+            "params_example": info.get("params_example", {}),
+            "param_docs": info.get("param_docs", {}),
+            "result_type": info.get("result_type", "json"),
+            "requires_stock": info.get("requires_stock", True),
         })
     return jsonify(result)
 

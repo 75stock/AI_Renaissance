@@ -47,8 +47,20 @@
     height:38px;border:1px solid var(--border);border-radius:6px;padding:0 12px;
     font-size:13px;color:var(--text-1);background:var(--bg-2);outline:none;transition:border .15s;font-family:inherit;
   }
-  .ctrl-group select:focus,.ctrl-group input:focus{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan-dim)}
+  .ctrl-group textarea{
+    min-height:88px;border:1px solid var(--border);border-radius:6px;padding:10px 12px;
+    font-size:12px;color:var(--text-1);background:var(--bg-2);outline:none;transition:border .15s;
+    font-family:var(--font-mono);resize:vertical;
+  }
+  .ctrl-group select:focus,.ctrl-group input:focus,.ctrl-group textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan-dim)}
   .ctrl-group select option{background:var(--bg-2);color:var(--text-1)}
+  .ctrl-group .hint{margin-top:6px;font-size:11px;color:var(--text-3);line-height:1.5}
+  .hint-block{display:flex;flex-direction:column;gap:8px}
+  .hint-title{color:var(--text-2);font-size:11px;line-height:1.6}
+  .param-docs{display:grid;gap:6px}
+  .param-doc{padding:8px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px}
+  .param-doc-name{font-family:var(--font-mono);font-size:11px;color:var(--cyan);margin-bottom:2px;word-break:break-word}
+  .param-doc-desc{font-size:11px;color:var(--text-2);line-height:1.6;word-break:break-word}
   .btn-run{
     height:38px;padding:0 28px;border:1px solid var(--cyan);border-radius:6px;
     background:var(--cyan-bg);color:var(--cyan);font-size:13px;font-weight:600;
@@ -90,10 +102,29 @@
   table.kt td:first-child{text-align:left;color:var(--text-1)}
   table.kt tr:hover td{background:var(--bg-2)}
   .up{color:var(--green)!important}.dn{color:var(--red)!important}
+  .kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;padding:16px}
+  .kv-item{padding:12px 14px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;min-width:0}
+  .kv-item .k{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;word-break:break-word}
+  .kv-item .v{font-size:12px;line-height:1.7;color:var(--text-1);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+  .record-list{display:flex;flex-direction:column;gap:12px;padding:16px}
+  .record-card{padding:14px 16px;background:var(--bg-2);border:1px solid var(--border);border-radius:10px;min-width:0}
+  .record-card-title{font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:12px;letter-spacing:.4px}
+  .record-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px}
+  .record-field{min-width:0}
+  .record-field .k{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;word-break:break-word}
+  .record-field .v{font-size:12px;line-height:1.6;color:var(--text-1);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+  .tag-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:16px}
+  .tag-card{padding:12px 14px;background:linear-gradient(180deg,var(--bg-2) 0%,var(--bg-1) 100%);border:1px solid var(--border);border-radius:10px;min-width:0}
+  .tag-card .name{font-size:13px;font-weight:700;color:var(--text-1);line-height:1.4;word-break:break-word;margin-bottom:8px}
+  .tag-card .meta{display:flex;flex-wrap:wrap;gap:6px 8px;margin-bottom:8px}
+  .tag-pill{display:inline-flex;align-items:center;padding:2px 8px;border:1px solid var(--border-light);border-radius:999px;font-size:10px;color:var(--text-2);background:var(--bg-0)}
+  .tag-card .time{font-size:10px;color:var(--text-3);line-height:1.5;word-break:break-word}
+  .mono-block{padding:16px 18px;background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:24px;overflow:auto}
+  .mono-block pre{margin:0;font-size:12px;line-height:1.65;color:var(--text-2);font-family:var(--font-mono);white-space:pre-wrap;word-break:break-word}
 
   .footer{text-align:center;padding:32px;font-size:11px;color:var(--text-3);border-top:1px solid var(--border);margin-top:40px}
 
-  @media(max-width:768px){.main{padding:16px}.ctrl{flex-direction:column}.ctrl-group{min-width:100%}.chart-inner{height:350px}}
+  @media(max-width:768px){.main{padding:16px}.ctrl{flex-direction:column}.ctrl-group{min-width:100%}.chart-inner{height:350px}.kv-grid,.record-grid{grid-template-columns:1fr}.record-list{padding:12px}.kv-grid{padding:12px}}
 </style>
 </head>
 <body>
@@ -120,6 +151,11 @@
     <div class="ctrl-group" style="max-width:160px;">
       <label>Stock Code</label>
       <input id="stockCode" type="text" placeholder="600519" />
+    </div>
+    <div class="ctrl-group" style="min-width:360px;flex:2;">
+      <label>Params JSON</label>
+      <textarea id="extraParams" placeholder='{"limit":20}'></textarea>
+      <div class="hint" id="skillHint">根据所选 Skill 自动填充示例参数。</div>
     </div>
     <button class="btn-run" id="runBtn" onclick="run()">FETCH</button>
   </div>
@@ -152,11 +188,38 @@
 
 <script>
 const KLINE_SKILLS = ["腾讯财经K线"];
+let skillsMeta = {};
 
 function onSkillChange() {
   const skill = document.getElementById("skillSelect").value;
+  const meta = skillsMeta[skill] || {};
+  const requiresStock = meta.requires_stock !== false;
+  const example = meta.params_example || {};
+
   document.getElementById("klineOptions").style.display =
     KLINE_SKILLS.includes(skill) ? "flex" : "none";
+  document.getElementById("stockCode").disabled = false;
+  document.getElementById("stockCode").placeholder = requiresStock ? "600519" : "可选：传入 stock_code 可返回该股票相关上下文";
+  document.getElementById("extraParams").value = Object.keys(example).length ? JSON.stringify(example, null, 2) : "{}";
+  document.getElementById("skillHint").innerHTML = renderSkillHint(meta);
+}
+
+function renderSkillHint(meta) {
+  const description = meta.description || "根据所选 Skill 自动填充示例参数。";
+  const paramDocs = meta.param_docs || {};
+  const docsHtml = Object.entries(paramDocs).map(([name, doc]) => `
+    <div class="param-doc">
+      <div class="param-doc-name">${escapeHtml(name)}</div>
+      <div class="param-doc-desc">${escapeHtml(doc)}</div>
+    </div>
+  `).join("");
+
+  return `
+    <div class="hint-block">
+      <div class="hint-title">${escapeHtml(description)}</div>
+      ${docsHtml ? `<div class="param-docs">${docsHtml}</div>` : ""}
+    </div>
+  `;
 }
 
 async function init() {
@@ -165,6 +228,7 @@ async function init() {
     const data = await resp.json();
     const sel = document.getElementById("skillSelect");
     data.forEach(s => {
+      skillsMeta[s.name] = s;
       const opt = document.createElement("option");
       opt.value = s.name; opt.textContent = s.name;
       sel.appendChild(opt);
@@ -177,12 +241,26 @@ async function init() {
 async function run() {
   const skill = document.getElementById("skillSelect").value;
   const stock = document.getElementById("stockCode").value.trim();
+  const meta = skillsMeta[skill] || {};
+  const requiresStock = meta.requires_stock !== false;
   const kType = document.getElementById("kType").value;
   const count = parseInt(document.getElementById("numCount").value) || 120;
+  const paramsText = document.getElementById("extraParams").value.trim();
+
   if (!skill) { showErr("Select a data skill"); return; }
-  if (!stock) { showErr("Enter a stock code"); return; }
+  if (requiresStock && !stock) { showErr("Enter a stock code"); return; }
+
+  let params = {};
+  if (paramsText) {
+    try { params = JSON.parse(paramsText); }
+    catch (e) { showErr("Params JSON 解析失败: " + e.message); return; }
+  }
+  if (KLINE_SKILLS.includes(skill)) {
+    params = Object.assign({}, params, { k_type: kType, num: count });
+  }
 
   hideErr();
+  disposeCharts();
   document.getElementById("loading").style.display = "block";
   document.getElementById("result").style.display = "none";
   document.getElementById("runBtn").disabled = true;
@@ -191,7 +269,7 @@ async function run() {
     const resp = await fetch("/api/test_skill", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ skill_name: skill, stock_code: stock, params: { k_type: kType, num: count } }),
+      body: JSON.stringify({ skill_name: skill, stock_code: stock, params }),
     });
     const data = await resp.json();
     if (data.error) { showErr(data.error + (data.traceback ? "\n" + data.traceback : "")); }
@@ -203,28 +281,162 @@ async function run() {
   }
 }
 
-function fmt(v, d) { d = d || 2; return v != null ? v.toFixed(d) : "—"; }
-function fmtVol(v) { if (v == null) return "—"; return v >= 1e8 ? (v/1e8).toFixed(1)+"亿" : v >= 1e4 ? (v/1e4).toFixed(0)+"万" : v.toFixed(0); }
+function fmt(v, d) { d = d || 2; return v != null && !Number.isNaN(v) ? Number(v).toFixed(d) : "—"; }
+function fmtVol(v) { if (v == null) return "—"; return v >= 1e8 ? (v/1e8).toFixed(1)+"亿" : v >= 1e4 ? (v/1e4).toFixed(0)+"万" : Number(v).toFixed(0); }
+function fmtRaw(v) { return v != null ? (typeof v === "number" ? v.toFixed(2) : String(v)) : "—"; }
 function showErr(m) { const b=document.getElementById("errBox"); b.textContent=m; b.style.display="block"; }
 function hideErr() { document.getElementById("errBox").style.display="none"; }
+function escapeHtml(text) { return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function renderValue(value) {
+  if (value == null) return "—";
+  if (Array.isArray(value)) return escapeHtml(value.join(", "));
+  if (typeof value === "object") return escapeHtml(JSON.stringify(value));
+  if (typeof value === "number") return Math.abs(value) >= 1e8 ? `${(value/1e8).toFixed(2)}亿` : String(value);
+  return escapeHtml(String(value));
+}
 
 // Store chart instances for resize
 let klineChart = null, rsiChart = null;
 
+function disposeCharts() {
+  if (klineChart) { klineChart.dispose(); klineChart = null; }
+  if (rsiChart) { rsiChart.dispose(); rsiChart = null; }
+}
+
 function render(data) {
   const r = data.result || {};
-  const kline = r.kline || [];
+  if (Array.isArray(r.kline) && r.kline.length) {
+    renderKlineResult(r);
+    return;
+  }
+  if (r.dataset === "fundflow_snapshot") {
+    renderFundflowSnapshot(r, data.skill_name || "Data Skill");
+    return;
+  }
+  renderGenericResult(r, data.skill_name || "Data Skill");
+}
+
+function renderSummaryCards(items) {
+  return `<div class="summary">${items.map(item => `<div class="s-card"><div class="lbl">${escapeHtml(item.label)}</div><div class="val">${escapeHtml(String(item.value ?? "—"))}</div></div>`).join("")}</div>`;
+}
+
+function renderKeyValueTable(title, obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj) || !Object.keys(obj).length) return "";
+  return `<div class="table-wrap"><div class="table-title">${escapeHtml(title)}</div><div class="kv-grid">${Object.entries(obj).map(([k, v]) => `<div class="kv-item"><div class="k">${escapeHtml(k)}</div><div class="v">${renderValue(v)}</div></div>`).join("")}</div></div>`;
+}
+
+function renderObjectArrayTable(title, rows, maxRows) {
+  if (!Array.isArray(rows) || !rows.length || typeof rows[0] !== "object") return "";
+  const limitedRows = rows.slice(0, maxRows || rows.length);
+  return `<div class="table-wrap"><div class="table-title">${escapeHtml(title)}（共 ${rows.length} 条，展示 ${limitedRows.length} 条）</div><div class="record-list">${limitedRows.map((row, index) => `<div class="record-card"><div class="record-card-title">第 ${index + 1} 条</div><div class="record-grid">${Object.entries(row || {}).map(([k, v]) => `<div class="record-field"><div class="k">${escapeHtml(k)}</div><div class="v">${renderValue(v)}</div></div>`).join("")}</div></div>`).join("")}</div></div>`;
+}
+
+function renderConceptTagCards(title, rows, maxRows) {
+  if (!Array.isArray(rows) || !rows.length) return "";
+  const limitedRows = rows.slice(0, maxRows || rows.length);
+  return `<div class="table-wrap"><div class="table-title">${escapeHtml(title)}（共 ${rows.length} 条，展示 ${limitedRows.length} 条）</div><div class="tag-card-grid">${limitedRows.map(row => `<div class="tag-card"><div class="name">${escapeHtml(row["概念名称"] || "—")}</div><div class="meta"><span class="tag-pill">代码 ${escapeHtml(String(row["概念代码"] || "—"))}</span><span class="tag-pill">热度 ${escapeHtml(String(row["热度"] ?? "—"))}</span></div><div class="time">${escapeHtml(String(row["时间"] || "—"))}</div></div>`).join("")}</div></div>`;
+}
+
+function renderGenericResult(r, title) {
+  disposeCharts();
+  const h = [];
+  const cards = [
+    { label: "Skill", value: title || "—" },
+    { label: "Status", value: r.status || "—" },
+    { label: "Dataset", value: r.dataset || "—" },
+    { label: "Stock", value: r.stock_code || "—" },
+    { label: "Market", value: r.market || "—" },
+    { label: "Indicator", value: r.indicator || "—" },
+    { label: "Total", value: r.total ?? r.top_n ?? r.market_main_flow?.total ?? "—" },
+    { label: "Fetch Time", value: (r.fetch_time || "—").replace("T", " ") },
+  ];
+  h.push(renderSummaryCards(cards));
+  h.push(renderKeyValueTable("基础信息", r.profile));
+  h.push(renderKeyValueTable("板块信息", r.boards));
+  h.push(renderKeyValueTable("摘要", r.summary));
+  h.push(renderKeyValueTable("Latest", r.latest));
+  h.push(renderKeyValueTable("Stock Context", r.stock_context));
+  h.push(renderKeyValueTable("北向资金摘要", r.northbound ? {
+    "交易日": r.northbound.trade_date,
+    "北向净买额": r.northbound.northbound_net_buy,
+    "北向净流入": r.northbound.northbound_net_inflow,
+    "南向净买额": r.northbound.southbound_net_buy,
+    "南向净流入": r.northbound.southbound_net_inflow,
+  } : null));
+  h.push(renderConceptTagCards("概念标签", r.concepts, 20));
+  h.push(renderObjectArrayTable("Recent Records", r.recent, 30));
+  h.push(renderObjectArrayTable("Industry Rankings", r.industry_rankings, 30));
+  h.push(renderObjectArrayTable("Concept Rankings", r.concept_rankings, 30));
+  h.push(renderObjectArrayTable("Related Industry Rankings", r.related_industry_rankings, 30));
+  h.push(renderObjectArrayTable("Related Concept Rankings", r.related_concept_rankings, 30));
+  h.push(renderObjectArrayTable("Market Main Flow", r.market_main_flow?.recent, 30));
+  h.push(renderObjectArrayTable("Northbound Breakdown", r.northbound?.breakdown, 20));
+  h.push(renderKeyValueTable("Raw", r.raw));
+  h.push(`<div class="mono-block"><pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre></div>`);
+  document.getElementById("result").innerHTML = h.filter(Boolean).join("");
+  document.getElementById("result").style.display = "block";
+}
+
+function renderFundflowSnapshot(r, title) {
+  disposeCharts();
+  const basic = r.basic_info || {};
+  const stockFlow = r.stock_fund_flow || {};
+  const sectorFlow = r.sector_fund_flow || {};
+  const marketFlow = r.market_fund_flow || {};
   const h = [];
 
-  // ── Summary cards ──
-  h.push(`<div class="summary">
-    <div class="s-card"><div class="lbl">Status</div><div class="val">${r.status || "—"}</div></div>
-    <div class="s-card"><div class="lbl">Stock</div><div class="val">${r.stock_code || "—"}</div></div>
-    <div class="s-card"><div class="lbl">Period</div><div class="val">${r.k_type || "—"}</div></div>
-    <div class="s-card"><div class="lbl">Total</div><div class="val">${r.total || 0}</div></div>
-    <div class="s-card"><div class="lbl">Fetch Time</div><div class="val">${(r.fetch_time || "—").replace("T"," ")}</div></div>
-    <div class="s-card"><div class="lbl">Indicators</div><div class="val">${(r.indicators || []).join(", ") || "—"}</div></div>
-  </div>`);
+  h.push(renderSummaryCards([
+    { label: "Skill", value: title || "—" },
+    { label: "状态", value: r.status || "—" },
+    { label: "股票", value: r.stock_code || basic.stock_code || "—" },
+    { label: "个股基础", value: basic.status || "—" },
+    { label: "个股资金", value: stockFlow.status || "—" },
+    { label: "板块资金", value: sectorFlow.status || "—" },
+    { label: "市场资金", value: marketFlow.status || "—" },
+    { label: "获取时间", value: (r.fetch_time || "—").replace("T", " ") },
+  ]));
+
+  h.push(renderKeyValueTable("个股基础信息", basic.profile));
+  h.push(renderKeyValueTable("个股板块信息", basic.boards));
+  h.push(renderConceptTagCards("个股概念标签", basic.concepts, 12));
+
+  h.push(renderKeyValueTable("个股资金摘要", stockFlow.summary));
+  h.push(renderKeyValueTable("最新个股资金记录", stockFlow.latest));
+  h.push(renderObjectArrayTable("近期个股资金记录", stockFlow.recent, 10));
+
+  h.push(renderKeyValueTable("股票关联板块上下文", sectorFlow.stock_context));
+  h.push(renderObjectArrayTable("相关行业资金榜", sectorFlow.related_industry_rankings, 10));
+  h.push(renderObjectArrayTable("相关概念资金榜", sectorFlow.related_concept_rankings, 10));
+  h.push(renderObjectArrayTable("行业资金总榜", sectorFlow.industry_rankings, 10));
+  h.push(renderObjectArrayTable("概念资金总榜", sectorFlow.concept_rankings, 10));
+
+  h.push(renderKeyValueTable("大盘主力资金最新", marketFlow.market_main_flow?.latest));
+  h.push(renderObjectArrayTable("近期大盘主力资金", marketFlow.market_main_flow?.recent, 10));
+  h.push(renderKeyValueTable("北向资金摘要", marketFlow.northbound ? {
+    "交易日": marketFlow.northbound.trade_date,
+    "北向净买额": marketFlow.northbound.northbound_net_buy,
+    "北向净流入": marketFlow.northbound.northbound_net_inflow,
+    "南向净买额": marketFlow.northbound.southbound_net_buy,
+    "南向净流入": marketFlow.northbound.southbound_net_inflow,
+  } : null));
+  h.push(renderObjectArrayTable("北向资金明细", marketFlow.northbound?.breakdown, 10));
+
+  h.push(`<div class="mono-block"><pre>${escapeHtml(JSON.stringify(r, null, 2))}</pre></div>`);
+  document.getElementById("result").innerHTML = h.filter(Boolean).join("");
+  document.getElementById("result").style.display = "block";
+}
+
+function renderKlineResult(r) {
+  const kline = r.kline || [];
+  const h = [];
+  h.push(renderSummaryCards([
+    { label: "Status", value: r.status || "—" },
+    { label: "Stock", value: r.stock_code || "—" },
+    { label: "Period", value: r.k_type || "—" },
+    { label: "Total", value: r.total || 0 },
+    { label: "Fetch Time", value: (r.fetch_time || "—").replace("T", " ") },
+    { label: "Indicators", value: (r.indicators || []).join(", ") || "—" },
+  ]));
 
   if (!kline.length) {
     h.push(`<div class="error-box" style="display:block">No kline data returned</div>`);
@@ -233,45 +445,19 @@ function render(data) {
     return;
   }
 
-  // ── Charts placeholder ──
-  h.push(`<div class="chart-box">
-    <div class="chart-title">K线图 · BOLL · MA</div>
-    <div class="chart-inner" id="klineChart"></div>
-  </div>`);
-  h.push(`<div class="chart-box">
-    <div class="chart-title">RSI 相对强弱指数</div>
-    <div class="chart-inner" id="rsiChart" style="height:280px"></div>
-  </div>`);
-
-  // ── Full data table ──
-  h.push(`<div class="table-wrap">
-    <div class="table-title">K线 + 技术指标明细（共 ${kline.length} 条）</div>
-    <div class="tbl-scroll"><table class="kt">
-    <thead><tr>
-      <th>Date</th><th>Open</th><th>Close</th><th>High</th><th>Low</th><th>Volume</th>
-      <th>MA5</th><th>MA10</th><th>MA20</th><th>MA60</th>
-      <th>BOLL-U</th><th>BOLL-M</th><th>BOLL-L</th>
-      <th>RSI6</th><th>RSI12</th><th>RSI14</th><th>RSI24</th>
-    </tr></thead><tbody>`);
+  h.push(`<div class="chart-box"><div class="chart-title">K线图 · BOLL · MA</div><div class="chart-inner" id="klineChart"></div></div>`);
+  h.push(`<div class="chart-box"><div class="chart-title">RSI 相对强弱指数</div><div class="chart-inner" id="rsiChart" style="height:280px"></div></div>`);
+  h.push(`<div class="table-wrap"><div class="table-title">K线 + 技术指标明细（共 ${kline.length} 条）</div><div class="tbl-scroll"><table class="kt"><thead><tr><th>Date</th><th>Open</th><th>Close</th><th>High</th><th>Low</th><th>Volume</th><th>MA5</th><th>MA10</th><th>MA20</th><th>MA60</th><th>BOLL-U</th><th>BOLL-M</th><th>BOLL-L</th><th>RSI6</th><th>RSI12</th><th>RSI14</th><th>RSI24</th></tr></thead><tbody>`);
   kline.forEach(item => {
     const m = item.ma || {}, b = item.boll || {}, s = item.rsi || {};
     const chg = item.close != null && item.open != null ? item.close - item.open : 0;
     const cls = chg > 0 ? "up" : chg < 0 ? "dn" : "";
-    h.push(`<tr>
-      <td>${item.date || "—"}</td>
-      <td>${fmt(item.open)}</td><td class="${cls}">${fmt(item.close)}</td>
-      <td>${fmt(item.high)}</td><td>${fmt(item.low)}</td><td>${fmtVol(item.volume)}</td>
-      <td>${fmt(m.ma5)}</td><td>${fmt(m.ma10)}</td><td>${fmt(m.ma20)}</td><td>${fmt(m.ma60)}</td>
-      <td>${fmt(b.upper)}</td><td>${fmt(b.middle)}</td><td>${fmt(b.lower)}</td>
-      <td>${fmt(s.rsi6,1)}</td><td>${fmt(s.rsi12,1)}</td><td>${fmt(s.rsi14,1)}</td><td>${fmt(s.rsi24,1)}</td>
-    </tr>`);
+    h.push(`<tr><td>${item.date || "—"}</td><td>${fmt(item.open)}</td><td class="${cls}">${fmt(item.close)}</td><td>${fmt(item.high)}</td><td>${fmt(item.low)}</td><td>${fmtVol(item.volume)}</td><td>${fmt(m.ma5)}</td><td>${fmt(m.ma10)}</td><td>${fmt(m.ma20)}</td><td>${fmt(m.ma60)}</td><td>${fmt(b.upper)}</td><td>${fmt(b.middle)}</td><td>${fmt(b.lower)}</td><td>${fmt(s.rsi6,1)}</td><td>${fmt(s.rsi12,1)}</td><td>${fmt(s.rsi14,1)}</td><td>${fmt(s.rsi24,1)}</td></tr>`);
   });
   h.push(`</tbody></table></div></div>`);
 
   document.getElementById("result").innerHTML = h.join("");
   document.getElementById("result").style.display = "block";
-
-  // ── Render charts ──
   renderKlineChart(kline, r.k_type || "day");
   renderRsiChart(kline);
 }
@@ -305,8 +491,6 @@ function renderKlineChart(kline, period) {
 
   const dates = kline.map(d => d.date);
   const ohlc = kline.map(d => [d.open, d.close, d.low, d.high]);
-  const volumes = kline.map(d => [d.date, d.volume || 0, d.close >= d.open ? 1 : -1]);
-
   // MA series
   const ma5 = kline.map(d => d.ma?.ma5 ?? null);
   const ma10 = kline.map(d => d.ma?.ma10 ?? null);
@@ -324,9 +508,6 @@ function renderKlineChart(kline, period) {
   option.grid = { top: 70, right: 70, bottom: 60, left: 70 };
   option.xAxis.data = dates;
   option.xAxis.axisLabel.rotate = kline.length > 60 ? 45 : 0;
-  // Show fewer labels for readability
-  const labelInterval = Math.max(1, Math.floor(dates.length / 15));
-
   option.yAxis = [{
     type: "value",
     scale: true,
@@ -473,8 +654,6 @@ function renderRsiChart(kline) {
     if (params.dataIndex != null) scrollTableTo(params.dataIndex);
   });
 }
-
-function fmtRaw(v) { return v != null ? (typeof v === "number" ? v.toFixed(2) : v) : "—"; }
 
 function scrollTableTo(idx) {
   const table = document.querySelector("table.kt");
