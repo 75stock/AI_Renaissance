@@ -19,6 +19,7 @@ class FundflowAgent(BaseAgent):
     def __init__(self, config: Optional[dict] = None):
         super().__init__(name="资金流向Agent", config=config or {})
         self.load_skills_from_domain("fundflow")
+        self.load_skills_from_domain("data")
 
     def analyze(self, stock_code: str) -> Signal:
         self.log(f"开始资金流向分析：{stock_code}")
