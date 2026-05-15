@@ -144,7 +144,7 @@ def list_agents():
 def debug_agent():
     """
     调试 Agent 接口
-    
+
     POST /api/debug
     Body: {"agent_name": "财务分析Agent", "stock_code": "600519"}
     """
@@ -204,7 +204,7 @@ def debug_agent():
 def orchestrate():
     """
     编排全流程：调用所有专家Agent + 仲裁
-    
+
     POST /api/orchestrate
     Body: {"stock_code": "600519"}
     """
@@ -240,6 +240,7 @@ def orchestrate():
                 "signals_summary": result.signals_summary,
                 "risks": result.risks,
                 "reasoning_chain": result.reasoning_chain,
+                "scope_trace": result.scope_trace,
             }
         })
     except Exception as e:

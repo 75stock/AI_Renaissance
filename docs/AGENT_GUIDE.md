@@ -263,6 +263,12 @@ guba_data = guba_source.get_posts("600519", pages=2, fetch_content=True)
 
 ## 八、如何测试
 
+### Agent 冒烟检查
+
+在 AgentScope 正式接入前，CI 暂时用 `tests/test_agent_smoke.py` 做最低限度冒烟检查：注册的专家 Agent 能导入，`analyze("000001")` 能离线跑通，并返回当前标准 `Signal`。
+
+这只是过渡测试，不代表最终接入规范。AgentScope 接入后，这里应随新的 Agent 生命周期一起调整或删除。
+
 ### 直接运行
 
 ```python
@@ -314,4 +320,4 @@ print(result.decision, result.direction, result.confidence)
 
 ---
 
-*最后更新：2026-05-03*
+*最后更新：2026-05-11*

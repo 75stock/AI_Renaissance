@@ -102,17 +102,15 @@ def main():
 
     logger.info(f"已注册 {registered_count} 个专家Agent")
 
-    # 遍历每只股票
+    # 遍历每只股票。Orchestrator 内部会为每只股票创建独立 AgentScope 编排 scope。
+    results = orchestrator.analyze_many(stock_codes)
     for stock_code in stock_codes:
         print(f"\n{'='*60}")
         print(f"📈 分析股票：{stock_code}")
         print(f"{'='*60}")
 
-        # 编排分析（自动收集信号 + 仲裁）
-        result = orchestrator.analyze(stock_code)
-
         # 输出结果
-        print_result(result)
+        print_result(results[stock_code])
 
     logger.info("分析完成")
 
@@ -202,6 +200,15 @@ def print_result(result):
     print(f"  看多：{summary.get('bullish', 0)}个")
     print(f"  看空：{summary.get('bearish', 0)}个")
     print(f"  中性：{summary.get('neutral', 0)}个")
+
+    if getattr(result, "scope_trace", None):
+        trace_summary = result.scope_trace.get("summary", {})
+        print(f"\n🧭 编排追踪：")
+        print(f"  注册Agent：{trace_summary.get('total_agents', 0)}个")
+        print(f"  成功：{trace_summary.get('success_count', 0)}个")
+        print(f"  失败：{trace_summary.get('failed_count', 0)}个")
+        print(f"  超时：{trace_summary.get('timeout_count', 0)}个")
+        print(f"  无效：{trace_summary.get('invalid_count', 0)}个")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ Orchestrator Agent 的核心组件，职责：
 """
 
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from agents.signal import Signal, SignalBundle, Direction
 from loguru import logger
 
@@ -27,6 +27,7 @@ class ArbitrationResult:
     signals_summary: Dict[str, int] # 信号汇总
     risks: List[str]               # 风险提示
     reasoning_chain: List[str]      # 推理链
+    scope_trace: Dict[str, Any] = field(default_factory=dict)  # AgentScope 编排追踪
 
 
 class ArbitrationEngine:
@@ -59,6 +60,7 @@ class ArbitrationEngine:
         self,
         signal_bundle: SignalBundle,
         trend_direction: Optional[str] = None,
+        execution_trace: Optional[Dict[str, Any]] = None,
     ) -> ArbitrationResult:
         """执行仲裁"""
         logger.info(f"[仲裁引擎] 开始仲裁，共{len(signal_bundle.signals)}个信号")
@@ -68,7 +70,7 @@ class ArbitrationEngine:
         logger.info(f"[仲裁引擎] 筛选后剩余{len(filtered_signals)}个信号")
 
         if not filtered_signals:
-            return self._empty_result()
+            return self._empty_result(execution_trace)
 
         # Step 2: 信号分类汇总
         signals_summary = self._summarize_signals(filtered_signals)
@@ -98,13 +100,14 @@ class ArbitrationEngine:
 
         # Step 8: 风险检查
         risks = self._check_risks(filtered_signals, direction)
+        risks.extend(self._check_execution_trace(execution_trace))
 
         # Step 9: 决策输出
         decision = self._make_decision(direction, confidence, position_ratio, risks)
 
         # Step 10: 生成推理链
         reasoning_chain = self._generate_reasoning_chain(
-            signals_summary, direction, confidence, position_ratio, risks
+            signals_summary, direction, confidence, position_ratio, risks, execution_trace
         )
 
         result = ArbitrationResult(
@@ -116,6 +119,7 @@ class ArbitrationEngine:
             signals_summary=signals_summary,
             risks=risks,
             reasoning_chain=reasoning_chain,
+            scope_trace=execution_trace or {},
         )
 
         logger.info(
@@ -233,6 +237,32 @@ class ArbitrationEngine:
 
         return risks
 
+    def _check_execution_trace(self, execution_trace: Optional[Dict[str, Any]]) -> List[str]:
+        """将编排执行完整性补充进风险提示，但不直接参与多空投票。"""
+        if not execution_trace:
+            return []
+
+        summary = execution_trace.get("summary", {})
+        failed_count = summary.get("failed_count", 0)
+        timeout_count = summary.get("timeout_count", 0)
+        invalid_count = summary.get("invalid_count", 0)
+        success_count = summary.get("success_count", 0)
+        total_agents = summary.get("total_agents", 0)
+
+        risks = []
+        incomplete_count = failed_count + timeout_count + invalid_count
+        if incomplete_count:
+            risks.append(
+                "编排提示："
+                f"{incomplete_count} 个Agent未产出有效Signal"
+                f"（失败{failed_count}，超时{timeout_count}，无效{invalid_count}）"
+            )
+
+        if total_agents and success_count < 3:
+            risks.append("⚠️ 有效Agent少于3个，仲裁可靠性不足")
+
+        return risks
+
     def _make_decision(
         self,
         direction: str,
@@ -262,7 +292,8 @@ class ArbitrationEngine:
         direction: str,
         confidence: float,
         position_ratio: float,
-        risks: List[str]
+        risks: List[str],
+        execution_trace: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
         """生成推理链"""
         chain = []
@@ -273,6 +304,17 @@ class ArbitrationEngine:
             f"看空{signals_summary.get('bearish', 0)}个，"
             f"中性{signals_summary.get('neutral', 0)}个"
         )
+
+        if execution_trace:
+            summary = execution_trace.get("summary", {})
+            chain.append(
+                "🧭 编排追踪："
+                f"注册{summary.get('total_agents', 0)}个Agent，"
+                f"成功{summary.get('success_count', 0)}个，"
+                f"失败{summary.get('failed_count', 0)}个，"
+                f"超时{summary.get('timeout_count', 0)}个，"
+                f"无效{summary.get('invalid_count', 0)}个"
+            )
 
         direction_text = {"bullish": "看多", "bearish": "看空", "neutral": "中性"}
         chain.append(f"🎯 方向判定：{direction_text.get(direction, '未知')}")
@@ -293,15 +335,31 @@ class ArbitrationEngine:
 
         return chain
 
-    def _empty_result(self) -> ArbitrationResult:
+    def _empty_result(self, execution_trace: Optional[Dict[str, Any]] = None) -> ArbitrationResult:
         """空结果"""
+        risks = ["⚠️ 有效信号不足"]
+        risks.extend(self._check_execution_trace(execution_trace))
+
+        reasoning_chain = ["无有效信号，建议观望"]
+        if execution_trace:
+            summary = execution_trace.get("summary", {})
+            reasoning_chain.append(
+                "🧭 编排追踪："
+                f"注册{summary.get('total_agents', 0)}个Agent，"
+                f"成功{summary.get('success_count', 0)}个，"
+                f"失败{summary.get('failed_count', 0)}个，"
+                f"超时{summary.get('timeout_count', 0)}个，"
+                f"无效{summary.get('invalid_count', 0)}个"
+            )
+
         return ArbitrationResult(
             decision="wait",
             direction="neutral",
             confidence=0.0,
             position_ratio=0.0,
-            reasoning="没有足够的有效信号",
+            reasoning="\n".join(reasoning_chain),
             signals_summary={"total": 0, "bullish": 0, "bearish": 0, "neutral": 0},
-            risks=["⚠️ 有效信号不足"],
-            reasoning_chain=["无有效信号，建议观望"],
+            risks=risks,
+            reasoning_chain=reasoning_chain,
+            scope_trace=execution_trace or {},
         )
