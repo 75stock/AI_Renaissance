@@ -2267,6 +2267,14 @@ def print_threshold_table():
 # V4.5 重写：五态拐点判定 — 基于真实信号匹配，无算法评分
 # ═══════════════════════════════════════════════════════════════
 
+def _parse_string_list(val):
+    """将多种格式的定性信号解析为字符串列表"""
+    if isinstance(val, list):
+        return [str(v) for v in val if v]
+    if isinstance(val, str) and val.strip():
+        return [val.strip()]
+    return []
+
 def _safe_float(val):
     if val is None: return None
     try: return float(val)
@@ -2280,6 +2288,24 @@ def determine_inflection_state_v45(real_signals, min_signals_required=2):
     price_yoy = _safe_float(real_signals.get("price_yoy"))
     inv_days = _safe_float(real_signals.get("inventory_days"))
     capex = str(real_signals.get("capex_plan", "")).lower()
+
+    # P1-1: 读取用户回填的定性信号作为bonus
+    inflection_bonus = _parse_string_list(real_signals.get("inflection_signals", []))
+    lifecycle_bonus = _parse_string_list(real_signals.get("lifecycle_signals", []))
+    # 关键词→拐点阶段映射
+    BONUS_KEYWORD_MAP = {
+        "confirmed": ["加速", "突破", "放量", "提价", "涨价", "缺货", "爆单", "产能紧张", "催化剂"],
+        "early": ["复苏", "回暖", "政策", "试点", "导入", "验证", "送样", "通过"],
+        "pre": ["低迷", "探底", "观望", "去库存", "低谷"],
+        "late": ["过热", "泡沫", "疯狂", "抢装", "囤货", "高位"],
+        "post": ["过剩", "降价", "暴跌", "砍单", "收缩", "去产能"],
+    }
+    bonus_matches = {tag: [] for tag in BONUS_KEYWORD_MAP}
+    for signal_text in inflection_bonus + lifecycle_bonus:
+        text_lower = signal_text.lower()
+        for tag, keywords in BONUS_KEYWORD_MAP.items():
+            if any(kw in text_lower for kw in keywords):
+                bonus_matches[tag].append(signal_text)
 
     def _match(tag):
         m = []
@@ -2324,10 +2350,13 @@ def determine_inflection_state_v45(real_signals, min_signals_required=2):
     best_state, best_matched, best_conf = InflectionState.PRE, [], 0.0
     for tag, state in checks:
         ok, matched = _match(tag)
-        if ok:
-            conf = min(1.0, len(matched)/6)
+        # 合并定性bonus信号
+        bonus_list = bonus_matches.get(tag, [])
+        total_matched = matched + [f"[定性] {b}" for b in bonus_list]
+        if ok or len(total_matched) >= min_signals_required:
+            conf = min(1.0, len(total_matched)/8)  # 分母用8（6定量+bonus空间）
             if conf >= best_conf:
-                best_state, best_conf, best_matched = state, conf, matched
+                best_state, best_conf, best_matched = state, conf, total_matched
     meta = STATE_META[best_state]
     logic = "\\n".join([f"基于 {len(best_matched)} 个真实数据信号匹配："] + [f"  • {x}" for x in best_matched] if best_matched else ["信号不足，回退至「拐点前」。建议补充真实指标。"])
     return StateResult(
