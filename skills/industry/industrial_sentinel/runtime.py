@@ -190,9 +190,14 @@ def run_industrial_sentinel(
         return {
             "direction": direction,
             "confidence": confidence,
-            "reasoning": inflection.get(
-                "reasoning",
-                f"{stock_info.get('stock_name', '')}: {state_name} | {stage}",
+            "reasoning": (
+                inflection.get(
+                    "reasoning",
+                    f"{stock_info.get('stock_name', '')}: {state_name} | {stage}",
+                ) + (
+                    f" | ⚠️ 数据{data_quality}，建议回填核心指标后重新分析" 
+                    if data_quality != "complete" else ""
+                )
             ),
             "signals": signals,
             "weight": weight,
@@ -207,6 +212,8 @@ def run_industrial_sentinel(
                 "adaptive_weights": get_adaptive_weights(stock_type_result, stage),
                 "supply_demand": inflection.get("signals", {}),
                 "policy_catalyst": inflection.get("policy_catalyst", {}),
+                "needs_data": data_quality != "complete",
+                "collection_hint": f"数据缺失({data_quality})。回填: python3 scripts/fill_data.py {stock_code} --field revenue_growth --value <值> --auto-run" if data_quality != "complete" else "",
             },
         }
 
