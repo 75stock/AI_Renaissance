@@ -922,7 +922,7 @@ def run_pipeline(stock_code: str) -> str:
         signals = real_data.get("real_signals", {})
         industry_data = real_data.get("industry_data", [])
         # 检查核心字段
-        core_fields = ["revenue_growth", "gross_margin", "order_backlog", "capacity_utilization", "price_yoy"]
+        core_fields = ["revenue_growth", "gross_margin", "order_backlog", "capacity_utilization", "price_yoy", "inventory_days"]
         missing_count = sum(1 for f in core_fields if signals.get(f) is None)
         if not industry_data:
             missing_count += 3
