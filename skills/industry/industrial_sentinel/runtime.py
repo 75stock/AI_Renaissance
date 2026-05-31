@@ -128,23 +128,7 @@ def run_industrial_sentinel(
         except Exception:
             html_path = ""
 
-        # ── Step 5: preset/industry 回传 ──
-        # run_pipeline 内部会更新 stock_info 的 preset/industry，
-        # 但 runtime.py 用的是初始 stock_info，需重新检测
-        try:
-            from core.auto_detect_preset import auto_detect_preset
-            DATA_DIR = SKILL_DIR / "data"
-            detected = auto_detect_preset(stock_code, DATA_DIR)
-            if detected:
-                stock_info["preset"] = detected
-                from core.pipeline import load_preset_yaml
-                yaml_data = load_preset_yaml(detected)
-                if yaml_data:
-                    stock_info["industry"] = yaml_data.get("industry_name", detected)
-        except Exception:
-            pass
-
-        # ── Step 6: 方向与置信度映射 ──
+        # ── Step 5: 方向与置信度映射 ──
         # 🔴 关键修复: pipeline 返回的是 state_name（中文），不是 state code
         state_name = inflection.get("state_name", "")
         stage = lifecycle.get("stage", "")
