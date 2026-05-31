@@ -874,7 +874,19 @@ def run_pipeline(stock_code: str) -> str:
     # Step 1: 加载真实数据
     real_data = load_real_data(stock_code)
 
-    # Step 1.0: 数据缺失降级 — 基于 preset YAML 生成框架级信号
+    # Step 1.0: 数据缺失 — 优先自动抓取，再降级
+    if real_data is None:
+        # V4.6: 尝试自动抓取
+        try:
+            from scripts.auto_fetch import auto_fetch_and_save
+            fetched = auto_fetch_and_save(stock_code)
+            if fetched:
+                logger.info("[Step 1.0] 自动抓取成功, 重新加载数据")
+                real_data = load_real_data(stock_code)
+        except Exception as e:
+            logger.debug("自动抓取失败: %s, 进入框架降级", e)
+    
+    # Step 1.0b: 仍然缺失 → 框架降级
     if real_data is None:
         # 先检测 preset
         preset_name = "generic"
