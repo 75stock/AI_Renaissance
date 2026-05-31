@@ -10,6 +10,62 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+
+# ═══════════════════════════════════════════════════════════════
+# A 股代码格式补全：纯数字 → 带后缀
+# ═══════════════════════════════════════════════════════════════
+
+def _normalize_a_stock_code(code: str) -> str:
+    """将纯数字 A 股代码补全为 'CODE.EXCHANGE' 格式。
+
+    规则：
+      - 已有 .SH/.SZ/.BJ/.HK 后缀 → 原样返回
+      - 688xxx       → .SH (科创板)
+      - 600/601/603/605xxx → .SH (上海主板)
+      - 000-003xxx   → .SZ (深圳主板/中小板)
+      - 300/301xxx   → .SZ (创业板)
+      - 430-439/830-839/870-879/920-929xxx → .BJ (北交所)
+      - 其他         → 原样返回（不做猜测）
+    """
+    code = code.strip().upper()
+    if not code:
+        return code
+    if any(code.endswith(sfx) for sfx in (".SH", ".SZ", ".BJ", ".HK")):
+        return code
+
+    # 尝试按前缀规则补全
+    digits = "".join(c for c in code if c.isdigit())
+    if len(digits) < 6:
+        return code  # 不是标准 A 股代码，原样返回
+
+    prefix = digits[:3]
+    if prefix.startswith("688"):
+        return f"{digits}.SH"
+    if prefix.startswith(("600", "601", "603", "605")):
+        return f"{digits}.SH"
+    if prefix.startswith(("000", "001", "002", "003")):
+        return f"{digits}.SZ"
+    if prefix.startswith(("300", "301")):
+        return f"{digits}.SZ"
+    if prefix.startswith(("430", "830", "831", "832", "833", "834", "835", "836", "837", "838", "839")):
+        return f"{digits}.BJ"
+    if prefix.startswith(("870", "871", "872", "873", "874", "875", "876", "877", "878", "879")):
+        return f"{digits}.BJ"
+    if prefix.startswith(("920", "921", "922", "923", "924", "925", "926", "927", "928", "929")):
+        return f"{digits}.BJ"
+    return code
+
+
+def _lookup_code(code: str, mapping: dict) -> Optional[str]:
+    """在映射表中查找代码，支持带后缀和纯数字两种格式。"""
+    normalized = _normalize_a_stock_code(code)
+    digits = "".join(c for c in normalized if c.isdigit())
+    # 优先级：标准格式 → 纯数字
+    for candidate in (normalized, digits):
+        if candidate in mapping:
+            return mapping[candidate]
+    return None
+
 # ═══════════════════════════════════════════════════════════════
 # 第一层：内置映射表（覆盖常见标的）
 # ═══════════════════════════════════════════════════════════════
@@ -55,7 +111,7 @@ BUILT_IN_MAP = {
     "688008.SH": "ai-chip",            # 澜起科技
     "688256.SH": "ai-chip",            # 寒武纪
     "688041.SH": "ai-chip",            # 海光信息
-    # "688521.SH": "ai-chip",            # 示例半导体标的（已注释）
+    "688521.SH": "ai-chip",            # 芯原股份
     "300124.SZ": "ai-energy",          # 汇川技术
     "600885.SH": "ai-energy",          # 宏发股份
     "002028.SZ": "ai-energy",          # 思源电气
@@ -220,22 +276,24 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
     """
     自动检测股票所属 preset
     多轮查询：内置映射 → akshare → 东方财富 → 腾讯名称 → None
+    支持 A 股纯数字代码自动补全后缀（如 688521 → 688521.SH）
     """
-    stock_code = stock_code.upper()
-    
-    # 轮1：内置映射表
-    preset = BUILT_IN_MAP.get(stock_code)
+    stock_code = _normalize_a_stock_code(stock_code.upper())
+    data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
+
+    # 轮1：内置映射表（支持带后缀和纯数字两种格式）
+    preset = _lookup_code(stock_code, BUILT_IN_MAP)
     if preset:
         logger.info("[自动检测] %s → %s (内置映射)", stock_code, preset)
         return preset
-    
+
     # 轮1.5：用户自定义映射
     user_map = load_user_map(data_dir)
-    preset = user_map.get(stock_code)
+    preset = _lookup_code(stock_code, user_map)
     if preset:
         logger.info("[自动检测] %s → %s (用户映射)", stock_code, preset)
         return preset
-    
+
     # 轮2：akshare
     industry = query_akshare(stock_code)
     if industry:
@@ -243,7 +301,7 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
         if preset:
             logger.info("[自动检测] %s → %s (akshare: %s)", stock_code, preset, industry)
             return preset
-    
+
     # 轮3：东方财富API
     industry = query_eastmoney(stock_code)
     if industry:
@@ -251,7 +309,7 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
         if preset:
             logger.info("[自动检测] %s → %s (东方财富: %s)", stock_code, preset, industry)
             return preset
-    
+
     # 轮4：腾讯API获取名称 + 名称关键词匹配
     name = query_tencent_name(stock_code)
     if name:
@@ -259,7 +317,7 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
         if preset:
             logger.info("[自动检测] %s → %s (名称匹配: %s)", stock_code, preset, name)
             return preset
-    
+
     logger.warning("[自动检测] %s 无法自动识别行业，请手动指定 --preset", stock_code)
     return None
 
@@ -268,13 +326,15 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
     """
     自动检测，同时返回查询日志
     用于 run.sh 展示给用户看查询过程
+    支持 A 股纯数字代码自动补全后缀
     """
-    stock_code = stock_code.upper()
+    stock_code = _normalize_a_stock_code(stock_code.upper())
+    data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
     logs = []
-    
+
     # 轮1：内置映射
     logs.append(f"轮1: 查内置映射表...")
-    preset = BUILT_IN_MAP.get(stock_code)
+    preset = _lookup_code(stock_code, BUILT_IN_MAP)
     if preset:
         logs.append(f"  ✅ 命中: {stock_code} → {preset}")
         return preset, logs
