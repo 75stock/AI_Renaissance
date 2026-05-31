@@ -221,6 +221,21 @@ def fill_batch(stock_code: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
     return data
 
 
+def _auto_run_pipeline(stock_code: str):
+    """自动重新运行 pipeline 生成报告"""
+    try:
+        import sys, os
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from core.pipeline import run_pipeline
+        print(f"\\n🔄 自动重新运行 pipeline: {stock_code}")
+        result = run_pipeline(stock_code)
+        if result:
+            print(f"✅ 报告已生成: {result}")
+        else:
+            print("⚠️  pipeline 返回空路径")
+    except Exception as e:
+        print(f"⚠️  自动重跑失败（不影响数据回填）: {e}")
+    
 def show_missing(stock_code: str) -> List[str]:
     """显示缺失字段列表。"""
     data = _load_or_create(stock_code)
@@ -254,12 +269,16 @@ if __name__ == "__main__":
     parser.add_argument("--url", default="", help="来源URL")
     parser.add_argument("--batch", help="批量回填的 JSON 文件路径")
     parser.add_argument("--show", action="store_true", help="显示缺失字段")
+    parser.add_argument("--auto-run", action="store_true", help="回填后自动重新运行 pipeline 生成报告")
 
     args = parser.parse_args()
 
     if args.show:
         show_missing(args.stock_code)
-    elif args.batch:
+        return
+    
+    # 执行回填
+    if args.batch:
         with open(args.batch, "r", encoding="utf-8") as f:
             items = json.load(f)
         fill_batch(args.stock_code, items)
@@ -270,3 +289,8 @@ if __name__ == "__main__":
         )
     else:
         parser.print_help()
+        return
+    
+    # P2-1: 自动重新运行 pipeline
+    if args.auto_run:
+        _auto_run_pipeline(args.stock_code)
