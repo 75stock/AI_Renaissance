@@ -3,8 +3,10 @@
 import sys
 from pathlib import Path
 
-core_dir = Path(__file__).parent.parent / "core"
-sys.path.insert(0, str(core_dir))
+REPO_ROOT = Path(__file__).parent.parent.parent
+SKILL_DIR = REPO_ROOT / "skills" / "industry" / "industrial_sentinel"
+core_dir = SKILL_DIR / "core"
+sys.path.insert(0, str(SKILL_DIR))
 
 import runpy
 runpy.run_path(str(core_dir / "system_b.py"), run_name="__main__")
