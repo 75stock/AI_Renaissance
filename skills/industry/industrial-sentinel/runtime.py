@@ -33,15 +33,13 @@ def run_industrial_sentinel(
     Returns:
         {
             "direction": "bullish" | "bearish" | "neutral",
-            "confidence": 0-100,
+            "confidence": 0.0-1.0,
             "reasoning": "判定理由",
-            "signals": {
-                "inflection_state": "拐点前/拐点初期/拐点确认/拐点晚期/拐点后衰退",
-                "lifecycle": "导入期/成长期/成熟期/衰退期",
-                "stock_type": "成长型/周期型/价值型/主题型/混合型",
-                "supply_demand": {...},
-                "policy_catalyst": {...},
-            },
+            "signals": [
+                "拐点状态: 拐点确认",
+                "生命周期: 成长期",
+                "个股类型: 成长型",
+            ],
             "weight": 0.0-1.0,
             "meta": {
                 "html_report": "path/to/report.html",
@@ -104,13 +102,14 @@ def run_industrial_sentinel(
         }
         confidence = confidence_map.get(state, 30)
 
-        signals = {
-            "inflection_state": inflection.get("state_name", "未知"),
-            "lifecycle": stage or "未知",
-            "stock_type": stock_type_result if isinstance(stock_type_result, str) else stock_type_result.get("type", "未判定"),
-            "supply_demand": inflection.get("signals", {}),
-            "policy_catalyst": inflection.get("policy_catalyst", {}),
-        }
+        # 构建信号列表（List[str]），详细数据放入 meta
+        signals = [
+            f"拐点状态: {inflection.get('state_name', '未知')}",
+            f"生命周期: {stage or '未知'}",
+        ]
+        stock_type_str = stock_type_result if isinstance(stock_type_result, str) else stock_type_result.get("type", "未判定")
+        if stock_type_str and stock_type_str != "未判定":
+            signals.append(f"个股类型: {stock_type_str}")
 
         # 权重：根据生命周期和拐点状态综合
         weight = 0.0
@@ -144,6 +143,8 @@ def run_industrial_sentinel(
                 "industry": stock_info.get("industry", "未知"),
                 "preset": stock_info.get("preset", "generic"),
                 "data_quality": data_quality,
+                "supply_demand": inflection.get("signals", {}),
+                "policy_catalyst": inflection.get("policy_catalyst", {}),
             },
         }
 
