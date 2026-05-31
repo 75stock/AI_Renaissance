@@ -289,6 +289,11 @@ def determine_lifecycle_from_real_data(real_data: Optional[Dict]) -> Dict[str, A
 # Step 3: 拐点判定（基于真实信号）
 # ═══════════════════════════════════════════════════════════════
 
+def cross_validate_with_industry(real_data):
+    """V4.6 stub: 跨行业交叉验证。后续接入产业链数据库做实质验证。"""
+    return {"validation_signals": []}
+
+
 def determine_inflection_from_real_data(real_data: Optional[Dict]) -> Dict[str, Any]:
     """
     调用 system_a.determine_inflection_state 的 V4.5 路径（real_signals）。
