@@ -205,6 +205,38 @@ def identify_stock_type(
     return "mixed"
 
 
+def identify_stock_type_v2(
+    industry: str,
+    revenue_growth: float,
+    rd_ratio: float,
+    asset_lightness: float,
+    profit_stability: float,
+    market_share: float = 0,
+    top_customer_orders: list = None,
+    segment_data: list = None,
+    industry_data: list = None,
+) -> str:
+    """V4.6 优化5: System B V2 — 增加行业地位维度。
+
+    新增判定:
+      - 技术驱动型(tech_driven): 市占率≥20% + 高研发
+      - 转型型(transforming): 有分部数据且新业务增速>50%
+    优先级: tech_driven > growth > transforming > cyclical > value > theme > mixed
+    """
+    base_type = identify_stock_type(industry, revenue_growth, rd_ratio, asset_lightness, profit_stability)
+    if market_share >= 20 and rd_ratio >= 5:
+        return "tech_driven"
+    if top_customer_orders:
+        big = [o for o in top_customer_orders if o.get("amount", 0) > 50000]
+        if big and rd_ratio >= 8:
+            return "tech_driven"
+    if segment_data and len(segment_data) >= 2:
+        new_segs = [s for s in segment_data if s.get("revenue_growth", 0) > 50]
+        if new_segs and sum(s.get("revenue_mix", 0) for s in new_segs) >= 20:
+            return "transforming"
+    return base_type
+
+
 # ═══════════════════════════════════════════════════════════════
 # 二、自适应权重模板
 # ═══════════════════════════════════════════════════════════════
