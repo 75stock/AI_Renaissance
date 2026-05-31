@@ -9,6 +9,7 @@ Industrial Sentinel — Agent 调用入口
 """
 
 import sys
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -118,14 +119,16 @@ def run_industrial_sentinel(
                     asset_lightness,
                     profit_stability,
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("stock_type 判定失败: %s", e)
                 stock_type_result = "未判定"
 
         # ── Step 4: 生成 HTML 报告 ──
         html_path = ""
         try:
             html_path = run_pipeline(stock_code)
-        except Exception:
+        except Exception as e:
+            logger.warning("HTML 报告生成失败: %s", e)
             html_path = ""
 
         # ── Step 5: 方向与置信度映射 ──
