@@ -707,6 +707,102 @@ def generate_html_v45(
 
 
 # ═══════════════════════════════════════════════════════════════
+# 数据缺失降级：基于 preset YAML 生成框架级信号
+# ═══════════════════════════════════════════════════════════════
+
+def build_framework_from_preset(stock_code: str, preset_name: str) -> Dict[str, Any]:
+    """
+    当 real_data 缺失时，基于 preset YAML 生成框架级信息。
+    降级信号 confidence 降低，但仍能输出产业链结构。
+    """
+    yaml_data = load_preset_yaml(preset_name) or {}
+
+    stock_info = {
+        "stock_code": stock_code,
+        "stock_name": stock_code,
+        "industry": yaml_data.get("industry_name", preset_name),
+        "preset": preset_name,
+        "sub_industry": "",
+        "chain_position": "",
+    }
+
+    # 降级生命周期：标注为框架模式
+    lifecycle = {
+        "stage": "框架降级",
+        "stage_short": "?",
+        "subtitle": "缺少真实财务数据",
+        "desc": "未找到 real_data.json，基于 preset YAML 输出产业链框架信息。请补充财报数据以启用完整生命周期判定。",
+        "color": "#f59e0b",
+        "color_bg": "rgba(245,158,11,0.12)",
+        "indicators": ["数据缺失"],
+        "analysis": "待采集真实数据后重新运行 pipeline。",
+    }
+
+    # 降级拐点
+    inflection = {
+        "state_name": "数据缺失",
+        "state_color": "#64748b",
+        "state_color_bg": "rgba(100,116,139,0.12)",
+        "matched_signals": "无信号",
+        "inflection_logic": "未提供真实数据，基于 preset 框架输出。",
+        "signals": {},
+        "policy_catalyst": {},
+        "reasoning": f"产业链框架分析 | preset={preset_name} | 数据状态: 待采集",
+    }
+
+    # 降级 System B
+    system_b = {
+        "type": "未判定",
+        "description": "缺少真实财务数据，无法判定个股类型。",
+        "weight_profile": {},
+    }
+
+    # 从 YAML 提取产业链结构信息
+    chain_summary = []
+    for section_name in ("upstream", "midstream", "downstream"):
+        section = yaml_data.get(section_name, {})
+        nodes = section.get("nodes", []) if isinstance(section, dict) else []
+        for node in nodes:
+            players = node.get("key_players", [])
+            profit = node.get("profit_pool", "")
+            chain_summary.append({
+                "layer": section_name,
+                "node": node.get("name", ""),
+                "key_players": players,
+                "profit_pool": profit,
+            })
+
+    return {
+        "stock_info": stock_info,
+        "lifecycle": lifecycle,
+        "inflection": inflection,
+        "system_b": system_b,
+        "chain_summary": chain_summary,
+        "data_quality": "framework_only",
+        "yaml_data": yaml_data,
+    }
+
+
+def _chain_summary_to_html(chain_summary: list) -> str:
+    """将产业链摘要转为简单 HTML。"""
+    if not chain_summary:
+        return "<p>暂无可用的产业链结构数据。</p>"
+    html = ['<div class="chain-framework">']
+    layers = {"upstream": "上游", "midstream": "中游", "downstream": "下游"}
+    for item in chain_summary:
+        layer_cn = layers.get(item.get("layer", ""), item.get("layer", ""))
+        players = ", ".join(item.get("key_players", [])[:5])
+        html.append(f'<div class="chain-node">')
+        html.append(f'<span class="layer-tag">{layer_cn}</span>')
+        html.append(f'<strong>{item.get("node", "")}</strong>')
+        html.append(f'<span class="profit">{item.get("profit_pool", "")}</span>')
+        html.append(f'<span class="players">核心玩家: {players}</span>')
+        html.append('</div>')
+    html.append('</div>')
+    return "\n".join(html)
+
+
+# ═══════════════════════════════════════════════════════════════
 # 主流程
 # ═══════════════════════════════════════════════════════════════
 
@@ -719,6 +815,45 @@ def run_pipeline(stock_code: str) -> str:
 
     # Step 1: 加载真实数据
     real_data = load_real_data(stock_code)
+
+    # Step 1.0: 数据缺失降级 — 基于 preset YAML 生成框架级信号
+    if real_data is None:
+        # 先检测 preset
+        preset_name = "generic"
+        try:
+            from core.auto_detect_preset import auto_detect_preset
+            detected = auto_detect_preset(stock_code, DATA_DIR)
+            if detected:
+                preset_name = detected
+        except Exception:
+            pass
+
+        logger.warning("[Step 1.0] real_data 缺失，启用框架降级模式 (preset=%s)", preset_name)
+        framework = build_framework_from_preset(stock_code, preset_name)
+        stock_info = framework["stock_info"]
+        lifecycle = framework["lifecycle"]
+        inflection = framework["inflection"]
+        system_b = framework["system_b"]
+        chain_summary = framework["chain_summary"]
+
+        # 生成降级 HTML
+        html = generate_html_v45(
+            stock_info=stock_info,
+            lifecycle=lifecycle,
+            inflection=inflection,
+            system_b=system_b,
+            industry_data=[],
+            chain_html=_chain_summary_to_html(chain_summary),
+        )
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_code = re.sub(r"[^A-Za-z0-9]", "_", stock_code)
+        out_path = REPORTS_DIR / f"{safe_code}_framework_{timestamp}.html"
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.info("框架降级报告: %s", out_path)
+        return str(out_path)
+
     stock_info = get_stock_info(stock_code, real_data)
     logger.info("[Step 1] 股票信息: %s (%s)", stock_info["stock_name"], stock_info["stock_code"])
 
