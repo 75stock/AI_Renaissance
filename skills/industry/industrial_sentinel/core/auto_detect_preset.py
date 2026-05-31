@@ -73,9 +73,9 @@ def _lookup_code(code: str, mapping: dict) -> Optional[str]:
 BUILT_IN_MAP = {
     # 光通信
     "300308.SZ": "optical-module",
-    # "688313.SH": "optical-module",  # 已注释（保留历史映射记录）
-    # "002428.SZ": "optical-module",  # 已注释（保留历史映射记录）
-    # "688205.SH": "optical-module",  # 已注释（保留历史映射记录）
+    "688313.SH": "optical-module",  # 仕佳光子
+    "002428.SZ": "optical-module",  # 云南锗业
+    "688205.SH": "optical-module",  # 德科立
     "002281.SZ": "optical-module", "300502.SZ": "optical-module",
     "300620.SZ": "optical-module", "688498.SH": "optical-module",
     "688260.SH": "optical-module", "300548.SZ": "optical-module",
@@ -96,10 +96,7 @@ BUILT_IN_MAP = {
     "300548.SZ": "optical-module", "688489.SH": "optical-module",
     "688260.SH": "optical-module", "300620.SZ": "optical-module",
     "300502.SZ": "optical-module",
-    # "688205.SH": "optical-module",  # 已注释（保留历史映射记录）
-    # "688313.SH": "optical-module",  # 已注释（保留历史映射记录）
-    # "002428.SZ": "optical-module",  # 已注释（保留历史映射记录）
-    # "300476.SZ": "ai-infrastructure",  # 示例PCB标的 → PCB/基础设施
+    "300476.SZ": "ai-infrastructure",  # 胜宏科技
     "002916.SZ": "ai-infrastructure",  # 深南电路
     "600183.SH": "ai-infrastructure",  # 生益科技
     "002384.SZ": "ai-infrastructure",  # 东山精密
