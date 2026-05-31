@@ -75,7 +75,7 @@ def run_industrial_sentinel(
             run_pipeline, load_real_data, get_stock_info,
             determine_inflection_from_real_data, determine_lifecycle_from_real_data,
         )
-        from core.system_b import identify_stock_type, get_asset_lightness_benchmark
+        from core.system_b import identify_stock_type, get_asset_lightness_benchmark, get_adaptive_weights
 
         # ── Step 1: 加载数据 ──
         real_data = load_real_data(stock_code)
@@ -205,6 +205,8 @@ def run_industrial_sentinel(
                 "industry": stock_info.get("industry", "未知"),
                 "preset": stock_info.get("preset", "generic"),
                 "data_quality": data_quality,
+                "stock_type": stock_type_result,
+                "adaptive_weights": get_adaptive_weights(stock_type_result, stage),
                 "supply_demand": inflection.get("signals", {}),
                 "policy_catalyst": inflection.get("policy_catalyst", {}),
             },
