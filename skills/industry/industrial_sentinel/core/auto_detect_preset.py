@@ -150,37 +150,7 @@ NAME_TO_PRESET = {
 # ═══════════════════════════════════════════════════════════════
 
 BUILT_IN_MAP = {
-    # 光通信
-    "300308.SZ": "optical-module",
-    "688313.SH": "optical-module",  # 仕佳光子
-    "002428.SZ": "optical-module",  # 云南锗业
-    "688205.SH": "optical-module",  # 德科立
-    "002281.SZ": "optical-module", "300502.SZ": "optical-module",
-    "300620.SZ": "optical-module", "688498.SH": "optical-module",
-    "688260.SH": "optical-module", "300548.SZ": "optical-module",
-    "688195.SH": "optical-module", "688489.SH": "optical-module",
-    "688167.SH": "optical-module", "688496.SH": "optical-module",
-    "300946.SZ": "optical-module", "301221.SZ": "optical-module",
-    "688061.SH": "optical-module", "688010.SH": "optical-module",
-    "300691.SZ": "optical-module", "300657.SZ": "optical-module",
-    "300709.SZ": "optical-module", "300936.SZ": "optical-module",
-    "300739.SZ": "optical-module", "688195.SH": "optical-module",
-    "300570.SZ": "optical-module", "688228.SH": "optical-module",
-    "688498.SH": "optical-module", "688127.SH": "optical-module",
-    "688165.SH": "optical-module", "300958.SZ": "optical-module",
-    "688183.SH": "optical-module", "688609.SH": "optical-module",
-    "300902.SZ": "optical-module", "300731.SZ": "optical-module",
-    "300902.SZ": "optical-module", "300731.SZ": "optical-module",
-    "300308.SZ": "optical-module", "002281.SZ": "optical-module",
-    "300548.SZ": "optical-module", "688489.SH": "optical-module",
-    "688260.SH": "optical-module", "300620.SZ": "optical-module",
-    "300502.SZ": "optical-module",
-    "300476.SZ": "ai-infrastructure",  # 胜宏科技
-    "002916.SZ": "ai-infrastructure",  # 深南电路
-    "600183.SH": "ai-infrastructure",  # 生益科技
-    "002384.SZ": "ai-infrastructure",  # 东山精密
-    "601138.SH": "ai-infrastructure",  # 工业富联
-    "603019.SH": "ai-chip",            # 中科曙光
+    # ── L2 芯片 (13) ──
     "688981.SH": "ai-chip",            # 中芯国际
     "688012.SH": "ai-chip",            # 中微公司
     "002371.SZ": "ai-chip",            # 北方华创
@@ -188,27 +158,101 @@ BUILT_IN_MAP = {
     "688256.SH": "ai-chip",            # 寒武纪
     "688041.SH": "ai-chip",            # 海光信息
     "688521.SH": "ai-chip",            # 芯原股份 - GPU/加速器设计
-    "300124.SZ": "ai-energy",          # 汇川技术
-    "600885.SH": "ai-energy",          # 宏发股份
-    "002028.SZ": "ai-energy",          # 思源电气
+    "002156.SZ": "ai-chip",            # 通富微电
+    "600584.SH": "ai-chip",            # 长电科技
+    "688347.SH": "ai-chip",            # 华虹半导体
+    "688126.SH": "ai-chip",            # 沪硅产业
+    "300666.SZ": "ai-chip",            # 江丰电子
+    "603019.SH": "ai-chip",            # 中科曙光
+
+    # ── L2 存储 (2) ──
+    "688525.SH": "storage",            # 佰维存储
+    "688110.SH": "storage",            # 东芯股份
+
+    # ── L3 光通信 (30) ──
+    "300308.SZ": "optical-module",     # 中际旭创
+    "300502.SZ": "optical-module",     # 新易盛
+    "300394.SZ": "optical-module",     # 天孚通信
+    "002281.SZ": "optical-module",     # 光迅科技
+    "688313.SH": "optical-module",     # 仕佳光子
+    "002428.SZ": "optical-module",     # 云南锗业
+    "688205.SH": "optical-module",     # 德科立
+    "688498.SH": "optical-module",     # 源杰科技
+    "688048.SH": "optical-module",     # 长光华芯
+    "300620.SZ": "optical-module",     # 光库科技
+    "688195.SH": "optical-module",     # 腾景科技
+    "688167.SH": "optical-module",     # 炬光科技
+    "300570.SZ": "optical-module",     # 太辰光
+    "300548.SZ": "optical-module",     # 博创科技
+    "301205.SZ": "optical-module",     # 联特科技
+    "603083.SH": "optical-module",     # 剑桥科技
+    "000988.SZ": "optical-module",     # 华工科技
+    "600487.SH": "optical-module",     # 亨通光电
+    "601869.SH": "optical-module",     # 长飞光纤
+    "600498.SH": "optical-module",     # 烽火通信
+    "000063.SZ": "optical-module",     # 中兴通讯
+    "300739.SZ": "optical-module",     # 明阳电路
+    "688010.SH": "optical-module",     # 福光股份
+    "688127.SH": "optical-module",     # 蓝特光学
+    "688183.SH": "optical-module",     # 生益电子
+    "300731.SZ": "optical-module",     # 科创新源
+    "688260.SH": "optical-module",     # 昀冢科技
+    "688061.SH": "optical-module",     # 灿瑞科技
+    "300691.SZ": "optical-module",     # 联合光电
+    "688496.SH": "optical-module",     # 清越科技
+
+    # ── L3 基础设施 (14) ──
+    "002916.SZ": "ai-infrastructure",  # 深南电路
+    "600183.SH": "ai-infrastructure",  # 生益科技
+    "002384.SZ": "ai-infrastructure",  # 东山精密
+    "601138.SH": "ai-infrastructure",  # 工业富联
+    "002463.SZ": "ai-infrastructure",  # 沪电股份
+    "300476.SZ": "ai-infrastructure",  # 胜宏科技
+    "002475.SZ": "ai-infrastructure",  # 立讯精密
+    "000977.SZ": "ai-infrastructure",  # 浪潮信息
+    "002179.SZ": "ai-infrastructure",  # 中航光电
+    "300684.SZ": "ai-infrastructure",  # 中石科技
+    "603296.SH": "ai-infrastructure",  # 华勤技术
+    "301165.SZ": "ai-infrastructure",  # 锐捷网络
+    "301309.SZ": "ai-infrastructure",  # 德明利
+    "603893.SH": "ai-infrastructure",  # 瑞芯微
+
+    # ── L1 能源 (15) ──
     "300274.SZ": "ai-energy",          # 阳光电源
-    "002270.SZ": "robotics",           # 绿的谐波
-    "603583.SH": "robotics",           # 拓普集团
+    "300124.SZ": "ai-energy",          # 汇川技术
+    "002028.SZ": "ai-energy",          # 思源电气
+    "600406.SH": "ai-energy",          # 国电南瑞
+    "600312.SH": "ai-energy",          # 平高电气
+    "000400.SZ": "ai-energy",          # 许继电气
+    "601179.SH": "ai-energy",          # 中国西电
+    "002837.SZ": "ai-energy",          # 英维克
+    "300499.SZ": "ai-energy",          # 高澜股份
+    "300990.SZ": "ai-energy",          # 同飞股份
+    "002335.SZ": "ai-energy",          # 科华数据
+    "002518.SZ": "ai-energy",          # 科士达
+    "300383.SZ": "ai-energy",          # 光环新网
+    "300442.SZ": "ai-energy",          # 润泽科技
+    "600885.SH": "ai-energy",          # 宏发股份
+
+    # ── L5 机器人 (13) ──
+    "688017.SH": "robotics",           # 绿的谐波
+    "601689.SH": "robotics",           # 拓普集团
     "002050.SZ": "robotics",           # 三花智控
+    "002472.SZ": "robotics",           # 双环传动
+    "603728.SH": "robotics",           # 鸣志电器
+    "603662.SH": "robotics",           # 柯力传感
+    "688322.SH": "robotics",           # 奥比中光
+    "688169.SH": "robotics",           # 石头科技
     "002747.SZ": "robotics",           # 埃斯顿
     "688160.SH": "robotics",           # 步科股份
-    "002979.SZ": "robotics",           # 科沃斯
-    "603486.SH": "robotics",           # 石头科技
-    "300222.SZ": "robotics",           # 科大智能
     "002896.SZ": "robotics",           # 中大力德
-    "603666.SH": "robotics",           # 亿嘉和
     "300607.SZ": "robotics",           # 拓斯达
-    "688017.SH": "robotics",           # 绿的谐波
     "002031.SZ": "robotics",           # 巨轮智能
-    "002527.SZ": "robotics",           # 新时达
-    "300278.SZ": "robotics",           # 华昌达
-    "603895.SH": "robotics",           # 天准科技
-    "688322.SH": "robotics",           # 奥比中光
+
+    # ── 用户持仓补充 ──
+    "002156.SZ": "ai-chip",            # 通富微电 (duplicate intentional - 封测龙头)
+    "300757.SZ": "ai-infrastructure",  # 罗博特科
+    "000700.SZ": "robotics",           # 模塑科技
 }
 
 # 行业关键词 → preset 映射
