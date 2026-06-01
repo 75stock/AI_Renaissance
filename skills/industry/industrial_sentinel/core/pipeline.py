@@ -366,7 +366,9 @@ def determine_inflection_from_real_data(real_data: Optional[Dict]) -> Dict[str, 
             )
 
     inflection_data_cards_html = "\n".join(data_cards)
-    matched_signals_text = "、".join(result.matched_signals) if result.matched_signals else "无明确匹配信号"
+    matched_signals_text = "、".join(
+    [s.get("signal", str(s)) if isinstance(s, dict) else str(s) for s in result.matched_signals]
+) if result.matched_signals else "无明确匹配信号"
 
     return {
         "state_name": result.state_name,
