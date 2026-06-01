@@ -402,6 +402,52 @@ class Threshold:
 # 五态阈值定义
 # =============================================================================
 
+
+def count_matching_signals(all_signals: Dict[str, Any], state: InflectionState) -> tuple:
+    """统计匹配指定拐点状态的信号数量"""
+    thresholds = STATE_THRESHOLDS.get(state, {})
+    matched_count = 0
+    matched_details = []
+    
+    for signal_name, threshold in thresholds.items():
+        value = all_signals.get(signal_name)
+        if value is None:
+            continue
+        
+        try:
+            val = float(value)
+            match = True
+            
+            if threshold.min_val is not None and val < threshold.min_val:
+                match = False
+            if threshold.max_val is not None and val > threshold.max_val:
+                match = False
+            if threshold.exact_match is not None and str(value).strip().lower() != threshold.exact_match.strip().lower():
+                match = False
+            
+            if match:
+                matched_count += 1
+                matched_details.append({
+                    "signal": signal_name,
+                    "value": val,
+                    "threshold": threshold.name,
+                    "range": f"{threshold.min_val or '-'}-{threshold.max_val or '-'}"
+                })
+        except (ValueError, TypeError):
+            # Non-numeric signals with exact_match
+            if threshold.exact_match is not None:
+                if str(value).strip().lower() == threshold.exact_match.strip().lower():
+                    matched_count += 1
+                    matched_details.append({
+                        "signal": signal_name,
+                        "value": str(value),
+                        "threshold": threshold.name,
+                        "exact_match": threshold.exact_match
+                    })
+    
+    return matched_count, matched_details
+
+
 STATE_THRESHOLDS = {
     InflectionState.PRE: {
         "cycle_score": Threshold("行业周期评分", "0-100", max_val=45),
