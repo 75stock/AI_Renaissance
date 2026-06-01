@@ -385,7 +385,7 @@ class StateResult:
     investment_advice: str
     key_monitoring_metrics: List[str]
     matched_signals: List[str]
-    all_signals: Dict[str, any]
+    all_signals: Dict[str, Any]
 
 
 @dataclass
@@ -550,9 +550,9 @@ def determine_inflection_state(
     cycle_score: float = 0,
     supply_demand_score: float = 0,
     policy_score: float = 0,
-    supply_signals: Dict[str, any] = None,
-    policy_signals: Dict[str, any] = None,
-    cycle_signals: Dict[str, any] = None,
+    supply_signals: Dict[str, Any] = None,
+    policy_signals: Dict[str, Any] = None,
+    cycle_signals: Dict[str, Any] = None,
     min_signals_required: int = 2,
     real_signals: Dict[str, Any] = None,
 ) -> StateResult:
@@ -872,7 +872,7 @@ def determine_lifecycle_phase(
     revenue_growth: float,
     industry_concentration_hhi: float = None,
     price_trend: str = "stable",
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     判定产业链生命周期阶段 — 基于渗透率阈值（V4.0 标准）
 
@@ -990,7 +990,7 @@ def detect_dimension_contradictions(
     supply_demand_score: float,
     policy_score: float,
     state_result: StateResult = None,
-) -> List[Dict[str, any]]:
+) -> List[Dict[str, Any]]:
     """
     检测三维评分之间的逻辑矛盾信号
 
