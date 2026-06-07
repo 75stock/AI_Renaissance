@@ -193,6 +193,172 @@ def test_mcp_servers_are_optional_for_direct_llm_arbitration() -> None:
     }
 
 
+def test_mcp_tools_are_registered_from_agentscope_async_clients(monkeypatch) -> None:
+    class FakeTool:
+        name = "lookup_policy"
+        description = "lookup policy"
+        inputSchema = {"type": "object", "properties": {}}
+
+    class FakeHttpStatelessClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def list_tools(self):
+            return [FakeTool()]
+
+        async def get_callable_function(self, func_name, wrap_tool_result=True, execution_timeout=None):
+            async def fake_callable(**kwargs):
+                return {"func_name": func_name, "kwargs": kwargs}
+
+            return fake_callable
+
+    fake_mcp_module = types.ModuleType("agentscope.mcp")
+    fake_mcp_module.HttpStatefulClient = FakeHttpStatelessClient
+    fake_mcp_module.HttpStatelessClient = FakeHttpStatelessClient
+    fake_mcp_module.StdIOStatefulClient = FakeHttpStatelessClient
+    monkeypatch.setitem(sys.modules, "agentscope.mcp", fake_mcp_module)
+
+    class FakeToolkit:
+        def __init__(self):
+            self.functions = {}
+            self.schemas = {}
+
+        def register_tool_function(self, tool_func, func_name, **kwargs):
+            self.functions[func_name] = tool_func
+            self.schemas[func_name] = kwargs
+
+    toolkit = FakeToolkit()
+    trace = ConfiguredMCPToolProvider(
+        {
+            "mcp_servers": [
+                {
+                    "name": "policy_mcp",
+                    "transport": "streamable_http",
+                    "url": "http://localhost:8000/mcp",
+                }
+            ],
+        }
+    ).register_tools(toolkit)
+
+    assert trace == {
+        "servers": [
+            {
+                "name": "policy_mcp",
+                "transport": "streamable_http",
+                "tool_count": 1,
+                "tools": ["lookup_policy"],
+            }
+        ],
+        "tools": ["lookup_policy"],
+    }
+    assert "lookup_policy" in toolkit.functions
+    assert toolkit.schemas["lookup_policy"]["json_schema"] == {"type": "object", "properties": {}}
+
+
+def test_stateful_mcp_clients_are_connected_and_closed(monkeypatch) -> None:
+    events = []
+
+    class FakeStatefulClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def connect(self):
+            events.append("connect")
+
+        async def list_tools(self):
+            return []
+
+        async def close(self, ignore_errors=True):
+            events.append(("close", ignore_errors))
+
+    fake_mcp_module = types.ModuleType("agentscope.mcp")
+    fake_mcp_module.HttpStatefulClient = FakeStatefulClient
+    fake_mcp_module.HttpStatelessClient = FakeStatefulClient
+    fake_mcp_module.StdIOStatefulClient = FakeStatefulClient
+    monkeypatch.setitem(sys.modules, "agentscope.mcp", fake_mcp_module)
+
+    provider = ConfiguredMCPToolProvider(
+        {
+            "mcp_servers": [
+                {
+                    "name": "stateful_policy_mcp",
+                    "transport": "streamable_http",
+                    "url": "http://localhost:8000/mcp",
+                    "stateful": True,
+                }
+            ],
+        }
+    )
+
+    assert provider.register_tools(toolkit=object())["servers"][0]["tool_count"] == 0
+    assert events == ["connect"]
+
+    provider.close()
+
+    assert events == ["connect", ("close", True)]
+
+
+def test_llm_arbitration_strategy_closes_mcp_provider_after_run() -> None:
+    class FakeSkillProvider:
+        def load_skills(self):
+            return [ArbitrationSkill(name="policy", path="policy", content="policy text")]
+
+    class FakeMCPToolProvider:
+        def __init__(self):
+            self.close_calls = 0
+
+        def register_tools(self, toolkit):
+            return {"servers": [{"name": "fake", "tools": ["lookup_policy"]}], "tools": ["lookup_policy"]}
+
+        def close(self):
+            self.close_calls += 1
+
+    class FakeAgent:
+        def run(self, payload):
+            return {
+                "decision": "buy",
+                "direction": "bullish",
+                "confidence": 0.7,
+                "position_ratio": 0.3,
+                "reasoning": "policy passed",
+                "signals_summary": {"total": 1, "bullish": 1, "bearish": 0, "neutral": 0},
+                "risks": [],
+                "reasoning_chain": ["policy passed"],
+            }
+
+    class FakeAgentFactory:
+        def create(self, config, toolkit):
+            return FakeAgent()
+
+    class FakeToolkit:
+        def register_tool_function(self, *args, **kwargs):
+            pass
+
+    bundle = SignalBundle(stock_code="600519")
+    bundle.add(
+        bullish_signal(
+            confidence=0.7,
+            reasoning="test signal",
+            signals=["signal"],
+            source="NewsAgent",
+            stock_code="600519",
+            signal_type="news",
+        )
+    )
+    mcp_provider = FakeMCPToolProvider()
+
+    result = LLMArbitrationStrategy(
+        {"skills": [{"path": "unused"}]},
+        skill_provider=FakeSkillProvider(),
+        mcp_tool_provider=mcp_provider,
+        agent_factory=FakeAgentFactory(),
+        toolkit_factory=FakeToolkit,
+    ).arbitrate(bundle, execution_trace={})
+
+    assert result.decision == "buy"
+    assert mcp_provider.close_calls == 1
+
+
 def test_llm_arbitration_skill_tools_return_agentscope_tool_response() -> None:
     class FakeToolkit:
         def __init__(self):

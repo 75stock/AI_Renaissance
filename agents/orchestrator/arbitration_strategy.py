@@ -8,6 +8,7 @@ LLM 分支只搭建 AgentScope Model、Skill、MCP 的调用框架，
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import time
@@ -137,6 +138,7 @@ class ConfiguredMCPToolProvider:
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self._clients_to_close: List[Any] = []
 
     def register_tools(self, toolkit: Any) -> Dict[str, Any]:
         servers = self.config.get("mcp_servers")
@@ -148,13 +150,35 @@ class ConfiguredMCPToolProvider:
         except Exception as exc:
             raise LLMArbitrationConfigurationError(f"AgentScope MCP 模块不可用：{exc}") from exc
 
+        return run_awaitable_sync(
+            self._register_tools_async(
+                toolkit,
+                servers,
+                HttpStatefulClient,
+                HttpStatelessClient,
+                StdIOStatefulClient,
+            )
+        )
+
+    async def _register_tools_async(
+        self,
+        toolkit: Any,
+        servers: List[Dict[str, Any]],
+        http_stateful_cls: Any,
+        http_stateless_cls: Any,
+        stdio_cls: Any,
+    ) -> Dict[str, Any]:
         registered_tools = []
         server_traces = []
+        self._clients_to_close = []
 
         for server_config in servers:
-            client = self._create_client(server_config, HttpStatefulClient, HttpStatelessClient, StdIOStatefulClient)
+            client = self._create_client(server_config, http_stateful_cls, http_stateless_cls, stdio_cls)
+            if hasattr(client, "connect"):
+                await client.connect()
+                self._clients_to_close.append(client)
             try:
-                tools = client.list_tools()
+                tools = await client.list_tools()
             except Exception as exc:
                 name = server_config.get("name", "未命名MCP")
                 raise LLMArbitrationExecutionError(f"MCP 工具列表读取失败：{name}: {exc}") from exc
@@ -170,7 +194,7 @@ class ConfiguredMCPToolProvider:
                 tool_name = getattr(tool, "name", "")
                 if not tool_name:
                     continue
-                callable_tool = client.get_callable_function(
+                callable_tool = await client.get_callable_function(
                     tool_name,
                     wrap_tool_result=True,
                     execution_timeout=server_config.get("execution_timeout"),
@@ -188,6 +212,23 @@ class ConfiguredMCPToolProvider:
             server_traces.append(server_trace)
 
         return {"servers": server_traces, "tools": registered_tools}
+
+    def close(self) -> None:
+        """Close stateful MCP clients opened during tool registration."""
+        run_awaitable_sync(self._close_clients_async())
+
+    async def _close_clients_async(self) -> None:
+        while self._clients_to_close:
+            client = self._clients_to_close.pop()
+            close = getattr(client, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close_result = close(ignore_errors=True)
+            except TypeError:
+                close_result = close()
+            if inspect.isawaitable(close_result):
+                await close_result
 
     def _create_client(
         self,
@@ -326,24 +367,31 @@ class LLMArbitrationStrategy:
             raise LLMArbitrationConfigurationError("llm_framework 至少需要加载一个仲裁 Skill")
         toolkit = self._create_toolkit()
         self._register_skill_tools(toolkit, skills)
-        mcp_trace = self.mcp_tool_provider.register_tools(toolkit)
+        mcp_trace = {"servers": [], "tools": []}
 
-        agent = self.agent_factory.create(self.config, toolkit)
-        payload = self._build_payload(signal_bundle, execution_trace or {}, skills, mcp_trace)
-        raw_response = agent.run(payload)
-        result_data = self._parse_response(raw_response)
-        result = self._build_result(result_data)
+        try:
+            mcp_trace = self.mcp_tool_provider.register_tools(toolkit)
 
-        trace["llm_arbitration"] = {
-            "mode": "llm_framework",
-            "model": self._model_trace(),
-            "skills": [skill.to_dict(include_content=False) for skill in skills],
-            "mcp": mcp_trace,
-            "duration_seconds": round(time.perf_counter() - started_at, 4),
-            "raw_response_preview": self._preview(raw_response),
-        }
-        result.scope_trace = trace
-        return result
+            agent = self.agent_factory.create(self.config, toolkit)
+            payload = self._build_payload(signal_bundle, execution_trace or {}, skills, mcp_trace)
+            raw_response = agent.run(payload)
+            result_data = self._parse_response(raw_response)
+            result = self._build_result(result_data)
+
+            trace["llm_arbitration"] = {
+                "mode": "llm_framework",
+                "model": self._model_trace(),
+                "skills": [skill.to_dict(include_content=False) for skill in skills],
+                "mcp": mcp_trace,
+                "duration_seconds": round(time.perf_counter() - started_at, 4),
+                "raw_response_preview": self._preview(raw_response),
+            }
+            result.scope_trace = trace
+            return result
+        finally:
+            close = getattr(self.mcp_tool_provider, "close", None)
+            if callable(close):
+                close()
 
     def _create_toolkit(self) -> Any:
         if self.toolkit_factory:
