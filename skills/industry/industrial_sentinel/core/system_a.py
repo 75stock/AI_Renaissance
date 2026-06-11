@@ -9,7 +9,7 @@ System A - 中观层产业拐点分析引擎
 - 五态拐点定量判定(Pre/Early/Confirmed/Late/Post)
 - 产业链生命周期判定(初创/成长/成熟/衰退)
 
-V4.5 变更:
+当前实现:
 - 删除所有评分数字与评分公式
 - 删除产业拐点指数(0-100)合成
 - 五态判定改为基于真实信号匹配
@@ -19,10 +19,9 @@ V4.5 变更:
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Union, Set
+from typing import Dict, Any, List, Optional, Union, Set
 
 # ───────────────────────────────────────────────────────────────
 # 日志配置(统一一次)
@@ -47,7 +46,7 @@ logger = logging.getLogger("system_a")
 @dataclass
 class IndustryDataPoint:
     """
-    行业数据点 -- System A 的唯一合法输入单元 (V4.5 无评分版)
+    行业数据点 -- System A 的唯一合法输入单元
 
     属性:
         value: 数据值(float/int/str,视metric而定)
@@ -201,10 +200,10 @@ INDUSTRY_LEADERS: Dict[str, Dict[str, Any]] = {
 # ═══════════════════════════════════════════════════════════════
 
 # ───────────────────────────────────────────────────────────────
-# 预取数据提取(V4.4 真实数据层)
+# 预取数据提取
 # ───────────────────────────────────────────────────────────────
 
-# Part 2 - 数据防火墙 (v44-data-firewall)
+# Part 2 - 数据防火墙
 # ═══════════════════════════════════════════════════════════════
 
 # ───────────────────────────────────────────────────────────────
@@ -362,7 +361,7 @@ COMPANY_SUFFIX_PATTERN = re.compile(
 # ═══════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════
-# Part 3 - 五态拐点模型 (v44-inflection-states)
+# Part 3 - 五态拐点模型
 # ═══════════════════════════════════════════════════════════════
 
 class InflectionState(Enum):
@@ -603,7 +602,7 @@ def determine_inflection_state(
     real_signals: Dict[str, Any] = None,
 ) -> StateResult:
     """
-    判定产业拐点状态 - V4.5 多信号匹配, 优先 real_signals 路径,不依赖单一合成指数
+    判定产业拐点状态 - 多信号匹配，优先 real_signals 路径，不依赖单一合成指数
 
     参数:
         cycle_score: 行业周期评分 0-100
@@ -617,9 +616,9 @@ def determine_inflection_state(
     返回:
         StateResult: 包含状态名、颜色、投资建议、监测指标、匹配信号详情
     """
-    # V4.5 优先：如果提供了 real_signals，走真实数据路径
+    # 如果提供了 real_signals，走真实数据路径
     if real_signals is not None and isinstance(real_signals, dict) and len(real_signals) > 0:
-        result, _ = determine_inflection_state_v45(real_signals, min_signals_required)
+        result, _ = determine_inflection_state_from_signals(real_signals, min_signals_required)
         return result
 
     supply_signals = supply_signals or {}
@@ -652,7 +651,7 @@ def determine_inflection_state(
         matched_count, matched_details = count_matching_signals(all_signals, state)
         total_signals = len(STATE_THRESHOLDS[state])
 
-        # V4.5: 不再要求单一合成指数区间,仅要求匹配信号数>=阈值
+        # 不再要求单一合成指数区间，仅要求匹配信号数>=阈值
         if matched_count >= min_signals_required:
             confidence = matched_count / total_signals if total_signals > 0 else 0.0
             if confidence > best_confidence:
@@ -680,11 +679,11 @@ def determine_inflection_state(
 # =============================================================================
 
 # ═══════════════════════════════════════════════════════════════
-# Part 4 - 评分公式 (v43-scoring-formula)
+# Part 4 - 评分公式
 # ═══════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════
-# V4.5 重写：五态拐点判定 — 基于真实信号匹配，无算法评分
+# 五态拐点判定 — 基于真实信号匹配，无算法评分
 # ═══════════════════════════════════════════════════════════════
 
 def _parse_string_list(val):
@@ -700,16 +699,58 @@ def _safe_float(val):
     try: return float(val)
     except (ValueError, TypeError): return None
 
-def determine_inflection_state_v45(real_signals, min_signals_required=2):
-    rev_growth = _safe_float(real_signals.get("revenue_growth"))
-    gm = _safe_float(real_signals.get("gross_margin"))
-    backlog = _safe_float(real_signals.get("order_backlog"))
-    util = _safe_float(real_signals.get("capacity_utilization"))
-    price_yoy = _safe_float(real_signals.get("price_yoy"))
-    inv_days = _safe_float(real_signals.get("inventory_days"))
-    capex = str(real_signals.get("capex_plan", "")).lower()
 
-    # V4.6 优化2: 毛利率历史趋势
+def _first_signal(signals: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        val = signals.get(key)
+        if val not in (None, "", "数据缺失", "待补充"):
+            return val
+    return None
+
+def determine_inflection_state_from_signals(real_signals, min_signals_required=2):
+    demand_growth = _safe_float(_first_signal(
+        real_signals,
+        "industry_market_growth",
+        "industry_demand_growth",
+        "industry_revenue_growth",
+        "revenue_growth",
+    ))
+    peer_gm = _safe_float(_first_signal(
+        real_signals,
+        "gross_margin_median",
+        "peer_gross_margin_median",
+        "gross_margin",
+    ))
+    order_growth = _safe_float(_first_signal(
+        real_signals,
+        "industry_order_growth",
+        "industry_order_backlog",
+        "order_backlog",
+    ))
+    util = _safe_float(_first_signal(
+        real_signals,
+        "industry_capacity_utilization",
+        "industry_capacity_util",
+        "capacity_utilization",
+    ))
+    price_yoy = _safe_float(_first_signal(
+        real_signals,
+        "industry_price_yoy",
+        "industry_price_trend",
+        "price_yoy",
+    ))
+    inv_days = _safe_float(_first_signal(
+        real_signals,
+        "industry_inventory_days",
+        "industry_inventory_cycle",
+        "inventory_days",
+    ))
+    policy_count = _safe_float(_first_signal(real_signals, "industry_policy_count", "policy_count"))
+    policy_score = _safe_float(_first_signal(real_signals, "industry_policy_score", "policy_score"))
+    competition_score = _safe_float(_first_signal(real_signals, "industry_competition_score", "competition_score"))
+    capex = str(_first_signal(real_signals, "industry_capex_plan", "industry_capacity_expansion", "capex_plan") or "").lower()
+
+    # 毛利率历史趋势
     gm_history = real_signals.get("gross_margin_history", [])
     gm_trend_up = False
     gm_trend_strong = False
@@ -717,7 +758,7 @@ def determine_inflection_state_v45(real_signals, min_signals_required=2):
         gm_trend_up = all(gm_history[i] < gm_history[i+1] for i in range(len(gm_history)-1))
         if gm_trend_up and gm_history[-1] > 30:
             gm_trend_strong = (gm_history[-1] - gm_history[0]) > 5
-    # V4.6: 业务分部数据（结构转型判定）
+    # 业务分部数据（结构转型判定）
     segment_data = real_signals.get("segment_data", [])
 
     # P1-1: 读取用户回填的定性信号作为bonus
@@ -744,49 +785,52 @@ def determine_inflection_state_v45(real_signals, min_signals_required=2):
     def _match(tag):
         m = []
         if tag == "pre":
-            if rev_growth is not None and rev_growth < 10: m.append(f"营收增速 {rev_growth:.1f}% < 10%")
-            if util is not None and util < 80: m.append(f"产能利用率 {util:.1f}% < 80%")
+            if demand_growth is not None and demand_growth < 5: m.append(f"行业需求增速 {demand_growth:.1f}% < 5%")
+            if util is not None and util < 80: m.append(f"行业产能利用率 {util:.1f}% < 80%")
             if price_yoy is not None and price_yoy < 0: m.append(f"价格同比 {price_yoy:.1f}% < 0")
             if capex in ("none", ""): m.append("扩产计划：无")
-            if backlog is not None and backlog < 20: m.append(f"订单backlog {backlog:.1f} 低位")
-            if gm is not None and gm < 15: m.append(f"毛利率 {gm:.1f}% < 15% 低位")
+            if order_growth is not None and order_growth < 0: m.append(f"行业订单增速 {order_growth:.1f}% < 0")
+            if peer_gm is not None and peer_gm < 15: m.append(f"同业毛利率中位数 {peer_gm:.1f}% < 15%")
         elif tag == "early":
-            if rev_growth is not None and 5 <= rev_growth < 20: m.append(f"营收增速 {rev_growth:.1f}% 温和复苏")
-            if util is not None and 80 <= util < 85: m.append(f"产能利用率 {util:.1f}% 回升中")
+            if demand_growth is not None and 5 <= demand_growth < 20: m.append(f"行业需求增速 {demand_growth:.1f}% 温和复苏")
+            if util is not None and 80 <= util < 85: m.append(f"行业产能利用率 {util:.1f}% 回升中")
             if price_yoy is not None and 0 <= price_yoy < 5: m.append(f"价格同比 {price_yoy:.1f}% 止跌")
             if capex in ("planned", "规划中"): m.append("扩产：已规划")
-            if backlog is not None and 20 <= backlog < 50: m.append(f"订单backlog {backlog:.1f} 改善")
-            if gm_trend_up and gm is not None and gm < 0: m.append(f"毛利率 {gm:.1f}% 仍为负，但趋势修复中")
-            if gm_trend_up and gm is not None and 15 <= gm < 30: m.append(f"毛利率 {gm:.1f}% 连续{len(gm_history)}期修复中")
-            if not gm_trend_up and gm is not None and gm < 0: m.append(f"毛利率 {gm:.1f}% 仍为负")
+            if order_growth is not None and 0 <= order_growth < 15: m.append(f"行业订单增速 {order_growth:.1f}% 改善")
+            if policy_count is not None and 1 <= policy_count < 3: m.append(f"政策催化 {policy_count:.0f} 项，处于传导初期")
+            if peer_gm is not None and 15 <= peer_gm < 25: m.append(f"同业毛利率中位数 {peer_gm:.1f}% 温和修复")
         elif tag == "confirmed":
-            if rev_growth is not None and rev_growth >= 20: m.append(f"营收增速 {rev_growth:.1f}% >= 20% 加速")
-            if util is not None and util >= 85: m.append(f"产能利用率 {util:.1f}% >= 85% 紧张")
+            if demand_growth is not None and demand_growth >= 20: m.append(f"行业需求增速 {demand_growth:.1f}% >= 20% 加速")
+            if util is not None and util >= 85: m.append(f"行业产能利用率 {util:.1f}% >= 85% 紧张")
             if price_yoy is not None and price_yoy >= 5: m.append(f"价格同比 {price_yoy:.1f}% >= 5% 涨价")
             if capex in ("underway", "进行中", "aggressive", "激进"): m.append("扩产：已启动")
-            if backlog is not None and backlog >= 50: m.append(f"订单backlog {backlog:.1f} 高位")
-            if gm is not None and gm >= 0: m.append(f"毛利率 {gm:.1f}% 修复至非负")
+            if order_growth is not None and order_growth >= 15: m.append(f"行业订单增速 {order_growth:.1f}% >= 15%")
+            if peer_gm is not None and peer_gm >= 25: m.append(f"同业毛利率中位数 {peer_gm:.1f}% >= 25%")
+            if policy_count is not None and policy_count >= 3: m.append(f"政策催化 {policy_count:.0f} 项，密度较高")
+            if policy_score is not None and policy_score >= 70: m.append(f"政策强度 {policy_score:.1f} >= 70")
             if gm_trend_strong: m.append(f"毛利率连续{len(gm_history)}期上升 {gm_history[0]}%→{gm_history[-1]}%，技术溢价验证")
-            # V4.6: 结构转型确认
+            # 结构转型确认
             if segment_data:
                 new_segs = [s for s in segment_data if s.get("revenue_growth", 0) > 50]
                 if new_segs and sum(s.get("revenue_mix", 0) for s in new_segs) >= 30:
-                    m.append(f"新业务占比≥30%且增速>50%，结构转型确认")
+                    m.append("新业务占比≥30%且增速>50%，结构转型确认")
         elif tag == "late":
             if util is not None and util >= 95: m.append(f"产能利用率 {util:.1f}% >= 95% 瓶颈")
             if price_yoy is not None and price_yoy >= 15: m.append(f"价格同比 {price_yoy:.1f}% >= 15% 高位")
             if inv_days is not None and inv_days > 60: m.append(f"库存天数 {inv_days:.1f} > 60 补库过激")
             if capex in ("aggressive", "激进"): m.append("扩产：激进")
-            if gm_history and len(gm_history) >= 2 and gm_history[-1] > 40 and gm_history[-1] < gm_history[-2]: m.append(f"毛利率 {gm_history[-1]}% 高位环比下滑，警惕过热")
+            if competition_score is not None and competition_score < 40: m.append(f"竞争格局评分 {competition_score:.1f} < 40，价格战风险上升")
+            if gm_history and len(gm_history) >= 2 and gm_history[-1] > 40 and gm_history[-1] < gm_history[-2]: m.append(f"同业毛利率 {gm_history[-1]}% 高位环比下滑，警惕过热")
             mom = str(real_signals.get("price_mom_trend", "")).lower()
             if mom in ("slowing", "declining", "放缓", "下滑"): m.append("价格环比：放缓")
         elif tag == "post":
-            if rev_growth is not None and rev_growth < 0: m.append(f"营收增速 {rev_growth:.1f}% < 0 收缩")
-            if util is not None and util < 75: m.append(f"产能利用率 {util:.1f}% < 75% 回落")
+            if demand_growth is not None and demand_growth < 0: m.append(f"行业需求增速 {demand_growth:.1f}% < 0 收缩")
+            if util is not None and util < 75: m.append(f"行业产能利用率 {util:.1f}% < 75% 回落")
             if price_yoy is not None and price_yoy < -5: m.append(f"价格同比 {price_yoy:.1f}% < -5% 暴跌")
-            if backlog is not None and backlog < 10: m.append(f"订单backlog {backlog:.1f} 枯竭")
+            if order_growth is not None and order_growth < -10: m.append(f"行业订单增速 {order_growth:.1f}% < -10%")
             if inv_days is not None and inv_days > 80: m.append(f"库存天数 {inv_days:.1f} > 80 积压")
-            if gm_history and len(gm_history) >= 2 and gm_history[-1] < gm_history[-2] and gm_history[-1] < 20: m.append(f"毛利率 {gm_history[-1]}% 持续下滑<20%，竞争恶化")
+            if capex in ("none", "") and price_yoy is not None and price_yoy < 0: m.append("价格下跌且无扩产，产业进入收缩验证")
+            if gm_history and len(gm_history) >= 2 and gm_history[-1] < gm_history[-2] and gm_history[-1] < 20: m.append(f"同业毛利率 {gm_history[-1]}% 持续下滑<20%，竞争恶化")
         return len(m) >= min_signals_required, m
 
     checks = [("post", InflectionState.POST), ("late", InflectionState.LATE),
@@ -815,15 +859,15 @@ def determine_inflection_state_v45(real_signals, min_signals_required=2):
 
 
 # ============================================================================
-# System B: Micro 层 - 个股层面调整(V4.3 新增)
+# System B: Micro 层 - 个股层面调整
 # ============================================================================
 
 
 # ═══════════════════════════════════════════════════════════════
-# V4.6 优化4: 多维置信度评估
+# 多维置信度评估
 # ═══════════════════════════════════════════════════════════════
 
-def calculate_confidence_v2(
+def calculate_confidence(
     state_code: str,
     matched_signals: list,
     real_data: dict,
@@ -831,7 +875,15 @@ def calculate_confidence_v2(
     max_confidence: float = 0.90,
 ) -> float:
     """多维度一致性评估 — 五维评分替换固定 CONFIDENCE_MAP。"""
-    signals = real_data.get("real_signals", {})
+    signals = {}
+    industry_signals = real_data.get("industry_signals", {})
+    peer_signals = real_data.get("peer_basket_signals", {})
+    if isinstance(industry_signals, dict):
+        signals.update(industry_signals)
+    if isinstance(peer_signals, dict):
+        signals.update({k: v for k, v in peer_signals.items() if k not in signals})
+    if not signals:
+        signals = real_data.get("real_signals", {})
     
     # 维度1: 信号密度 (0-30分)
     signal_count = len(matched_signals)
@@ -844,9 +896,23 @@ def calculate_confidence_v2(
     score_quality = 10 + fill_rate * 15
     
     # 维度3: 趋势一致性 (5-25分)
-    rev = _safe_float(signals.get("revenue_growth"))
-    gm = _safe_float(signals.get("gross_margin"))
-    backlog = _safe_float(signals.get("order_backlog"))
+    rev = _safe_float(
+        signals.get("industry_revenue_growth")
+        or signals.get("industry_market_growth")
+        or signals.get("industry_demand_growth")
+        or signals.get("revenue_growth_median")
+        or signals.get("revenue_growth")
+    )
+    gm = _safe_float(
+        signals.get("gross_margin_median")
+        or signals.get("peer_gross_margin_median")
+        or signals.get("gross_margin")
+    )
+    backlog = _safe_float(
+        signals.get("industry_order_growth")
+        or signals.get("industry_order_backlog")
+        or signals.get("order_backlog")
+    )
     directions = []
     for v in [rev, backlog]:
         if v is not None:
@@ -920,7 +986,7 @@ def determine_lifecycle_phase(
     price_trend: str = "stable",
 ) -> Dict[str, Any]:
     """
-    判定产业链生命周期阶段 — 基于渗透率阈值（V4.0 标准）
+    判定产业链生命周期阶段 — 基于渗透率阈值
 
     渗透率阈值标准：
     - 成长期: 渗透率 < 15% 或 15-30%且增速>25%
@@ -929,7 +995,7 @@ def determine_lifecycle_phase(
     - 退潮期: 渗透率 > 60% 且增速<5%或下滑
 
     辅助信号：
-    - 营收增速: growth >20%, mature 5-20%, decline 0-5%, ebb <0%
+    - 行业营收增速: growth >20%, mature 5-20%, decline 0-5%, ebb <0%
     - 价格趋势: 成长期涨价/稳价, 退潮期持续跌价
     - 行业集中度(HHI): 成熟期集中度上升, 退潮期集中度下降(洗牌)
 
@@ -963,13 +1029,13 @@ def determine_lifecycle_phase(
         phase = LifecyclePhase.EBB
         signals.append(f"渗透率 {penetration_rate:.1f}% >= 60% 且增速 {revenue_growth:.1f}% < 0% → 退潮期")
 
-    # 营收增速交叉验证
+    # 行业营收增速交叉验证
     if revenue_growth > 20.0 and phase != LifecyclePhase.GROWTH:
         confidence -= 0.10
-        signals.append(f"营收增速 {revenue_growth:.1f}% > 20% 但主判定非成长期 → 置信度-0.10")
+        signals.append(f"行业营收增速 {revenue_growth:.1f}% > 20% 但主判定非成长期 → 置信度-0.10")
     elif revenue_growth < 0.0 and phase != LifecyclePhase.EBB:
         confidence -= 0.15
-        signals.append(f"营收增速 {revenue_growth:.1f}% < 0% 但主判定非退潮期 → 置信度-0.15")
+        signals.append(f"行业营收增速 {revenue_growth:.1f}% < 0% 但主判定非退潮期 → 置信度-0.15")
 
     # 价格趋势交叉验证
     if price_trend == "declining" and phase in [LifecyclePhase.GROWTH, LifecyclePhase.MATURE]:
@@ -1028,7 +1094,7 @@ def determine_lifecycle_phase(
 
 
 # ═══════════════════════════════════════════════════════════════
-# 七、维度矛盾信号检测（V4.5 新增）
+# 七、维度矛盾信号检测
 # ═══════════════════════════════════════════════════════════════
 
 def detect_dimension_contradictions(
@@ -1040,7 +1106,7 @@ def detect_dimension_contradictions(
     """
     检测三维评分之间的逻辑矛盾信号
 
-    矛盾规则（基于 V4.0 方法论 + 实盘验证）：
+    矛盾规则（基于方法论与实盘验证）：
     1. 周期评分高(>75) + 供需评分低(<40): "周期上行但供需未跟" → 假繁荣风险
     2. 供需评分高(>75) + 政策评分低(<40): "供需紧但政策不支持" → 可持续性存疑
     3. 政策评分高(>75) + 周期评分低(<40): "政策强推但周期未起" → 政策驱动型/人造景气
@@ -1123,4 +1189,3 @@ def detect_dimension_contradictions(
 # ═══════════════════════════════════════════════════════════════
 # 统一测试入口
 # ═══════════════════════════════════════════════════════════════
-

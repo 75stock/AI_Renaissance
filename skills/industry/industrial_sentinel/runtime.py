@@ -99,7 +99,11 @@ def run_industrial_sentinel(
         if not stock_info.get("preset") or stock_info.get("preset") == "generic":
             try:
                 from core.auto_detect_preset import auto_detect_preset
-                detected_preset = auto_detect_preset(stock_code, Path(__file__).parent / "data")
+                detected_preset = auto_detect_preset(
+                    stock_code,
+                    Path(__file__).parent / "data",
+                    allow_provider_lookup=False,
+                )
                 if detected_preset:
                     stock_info["preset"] = detected_preset
                     real_data["preset"] = detected_preset
@@ -131,7 +135,7 @@ def run_industrial_sentinel(
         # asset_lightness, profit_stability) → 5 个独立参数
         stock_type_result = "未判定"
         if real_data:
-            rs = real_data.get("real_signals", {})
+            rs = real_data.get("company_signals") or real_data.get("real_signals", {})
             industry_name = real_data.get(
             "industry", stock_info.get("industry", "")
             )
@@ -173,12 +177,8 @@ def run_industrial_sentinel(
                 logger.warning("stock_type 判定失败: %s", e)
                 stock_type_result = "未判定"
 
-        # ── Step 4: Agent 模式跳过 HTML 生成和 pipeline 重复调用 ──
-        # runtime.py 已自行完成生命周期、拐点、System B 分析
-        # 不再调用 run_pipeline 避免重复计算
-        html_path = ""
-
-        # ── Step 5: 方向与置信度映射 ──
+        # ── Step 4: 方向与置信度映射 ──
+        # Agent 模式只返回结构化 Signal 数据，不生成 HTML 报告。
         # 🔴 关键修复: pipeline 返回的是 state_name（中文），不是 state code
         state_name = inflection.get("state_name", "")
         stage = lifecycle.get("stage", "")
@@ -187,8 +187,8 @@ def run_industrial_sentinel(
         direction = DIRECTION_MAP.get(state_code, "neutral")
         # 优化4: 多维置信度替代固定映射
         try:
-            from core.system_a import calculate_confidence_v2
-            confidence = calculate_confidence_v2(
+            from core.system_a import calculate_confidence
+            confidence = calculate_confidence(
             state_code=state_code,
             matched_signals=inflection.get(
     "matched_signals_list", []) or inflection.get(
@@ -200,7 +200,7 @@ def run_industrial_sentinel(
         # 防御性 clamp: 确保 confidence 始终在有效范围内
         confidence = max(0.0, min(1.0, float(confidence)))
 
-        # ── Step 7: 构建信号列表 ──
+        # ── Step 5: 构建信号列表 ──
         signals = [
         f"拐点状态: {state_name or '未知'}",
         f"生命周期: {stage or '未知'}",
@@ -213,7 +213,7 @@ def run_industrial_sentinel(
         if stock_type_str and stock_type_str != "未判定":
             signals.append(f"个股类型: {stock_type_str}")
 
-        # ── Step 8: 权重 ──
+        # ── Step 6: 权重 ──
         weight = 0.0
         if stage == "成长期" and state_code in (
         "early_inflection", "inflection_point", "inflection_confirmed"
@@ -229,14 +229,16 @@ def run_industrial_sentinel(
             weight = 0.1
         elif stage == "数据缺失":
             weight = 0.2
-        weight = 0.2
+        elif weight == 0.0:
+            weight = 0.2
 
-        # 数据严重缺失时保留微弱声音
-        if not real_data or real_data.get("_missing_count", 0) >= 3:
-            if weight < 0.2:
-                weight = 0.2
+        # 数据缺失时降低行业信号在仲裁层的影响力。
+        if not real_data or real_data.get("_missing_count", 0) >= 2:
+            weight = min(weight, 0.2)
+        elif real_data.get("_missing_count", 0) == 1:
+            weight = min(weight, 0.4)
 
-        # ── Step 9: 数据质量 ──
+        # ── Step 7: 数据质量 ──
         data_quality = "complete"
         if not real_data:
             data_quality = "missing"
@@ -246,7 +248,7 @@ def run_industrial_sentinel(
             data_quality = "incomplete"  # 至少一个主要数据源缺失
         else:
             # 两个主要数据源都存在，但检查 real_signals 字段缺失
-            rs = real_data.get("real_signals", {})
+            rs = real_data.get("company_signals") or real_data.get("real_signals", {})
             if rs:
                 # 统计 real_signals 中缺失的字段数量
                 missing_fields = sum(1 for v in rs.values() if v is None or v == "")
@@ -256,8 +258,12 @@ def run_industrial_sentinel(
                     data_quality = "incomplete"
             else:
                 data_quality = "missing"
+        if real_data and real_data.get("_preset_only"):
+            data_quality = "missing"
+            confidence = min(confidence, 0.35)
+            weight = min(weight, 0.2)
 
-        # ── Step 9.5: 降级原因提示（从 Agent config 透传） ──
+        # ── Step 7.5: 降级原因提示（从 Agent config 透传） ──
         degradation_reasons = (config or {}).get("_degradation_reasons", [])
         degradation_hint = ""
         if degradation_reasons:
@@ -278,7 +284,7 @@ def run_industrial_sentinel(
                 stock_code, stock_info.get("stock_name", stock_code), real_data
             )
 
-        # ── Step 10: 构建完整 System B 输出 ──
+        # ── Step 8: 构建完整 System B 输出 ──
         system_b_output = _build_system_b_output(
             stock_type_result,
             stock_info.get("stock_name", stock_code),
@@ -355,13 +361,47 @@ def _build_real_data(
 
     # ── 行业情绪数据 ──
     if industry_result:
-        real_data["industry"] = industry_result.get("industry", "")
-        real_data["industry_sentiment"] = industry_result.get("sentiment", "")
-        real_data["industry_sentiment_score"] = industry_result.get(
-            "sentiment_score", 0)
-        # 若数据源提供了更细粒度的信号，也一并透传
-        if "signals" in industry_result:
-            real_data["industry_signals"] = industry_result["signals"]
+        stage = industry_result.get("stage") or {}
+        real_data["industry"] = (
+            industry_result.get("industry")
+            or industry_result.get("industry_name")
+            or ""
+        )
+        real_data["industry_sentiment"] = (
+            industry_result.get("sentiment")
+            or stage.get("name")
+            or industry_result.get("direction")
+            or ""
+        )
+        real_data["industry_sentiment_score"] = (
+            industry_result.get("sentiment_score")
+            if industry_result.get("sentiment_score") is not None
+            else industry_result.get("score", 0)
+        )
+        real_data["industry_sentiment_direction"] = industry_result.get("direction", "")
+        real_data["industry_sentiment_confidence"] = industry_result.get("confidence", 0)
+        for key in ("preset", "input_type", "stock_name"):
+            if industry_result.get(key):
+                real_data[key] = industry_result[key]
+        if industry_result.get("status") == "preset_only":
+            real_data["_preset_only"] = True
+        # 若数据源提供了更细粒度的信号，也一并透传为 System A 行业级信号
+        signals = industry_result.get("signals")
+        if signals is None:
+            signals = industry_result.get("special_signals")
+        if signals is not None:
+            real_data["industry_signals"] = _normalize_industry_signals(
+                signals,
+                industry_result=industry_result,
+            )
+        elif any(k in industry_result for k in ("score", "stage", "direction", "confidence")):
+            real_data["industry_signals"] = _normalize_industry_signals(
+                None,
+                industry_result=industry_result,
+            )
+        peer_signals = industry_result.get("peer_basket_signals")
+        if isinstance(peer_signals, dict):
+            real_data["peer_basket_signals"] = peer_signals
     else:
         missing_count += 1
 
@@ -370,7 +410,7 @@ def _build_real_data(
         # 优先尝试从原始三张表（balance/income/cashflow）提取关键指标
         extracted = _extract_metrics_from_statements(financial_data)
         # 若提取失败，fallback 到扁平化字段
-        real_data["real_signals"] = {
+        company_signals = {
             "revenue_growth": extracted.get("revenue_growth") if extracted.get("revenue_growth") is not None else financial_data.get("revenue_growth"),
             "rd_ratio": extracted.get("rd_ratio") if extracted.get("rd_ratio") is not None else financial_data.get("rd_ratio"),
             "research_expense_ratio": extracted.get("research_expense_ratio") if extracted.get("research_expense_ratio") is not None else financial_data.get("research_expense_ratio"),
@@ -381,6 +421,11 @@ def _build_real_data(
             "roe": extracted.get("roe") if extracted.get("roe") is not None else financial_data.get("roe"),
             "debt_ratio": extracted.get("debt_ratio") if extracted.get("debt_ratio") is not None else financial_data.get("debt_ratio"),
         }
+        real_data["company_signals"] = company_signals
+        # legacy: System B 和旧模板仍读取 real_signals；System A 应优先读取 industry_signals。
+        real_data["real_signals"] = company_signals
+        if isinstance(financial_data.get("peer_basket_signals"), dict):
+            real_data["peer_basket_signals"] = financial_data["peer_basket_signals"]
         # 透传其他可能有用的字段（不计入 missing_count，这些是可选补充）
         for key in ["stock_name", "market_cap", "pe_ttm", "pb", "sector"]:
             if key in financial_data:
@@ -392,10 +437,41 @@ def _build_real_data(
     return real_data
 
 
+def _normalize_industry_signals(signals: Any, industry_result: Optional[dict] = None) -> dict:
+    """Normalize provider industry output into the System A signal contract."""
+    industry_result = industry_result or {}
+    normalized: Dict[str, Any] = {}
+
+    if isinstance(signals, dict):
+        normalized.update(signals)
+    elif isinstance(signals, list):
+        normalized["qualitative_signals"] = [str(s) for s in signals if s]
+        normalized["inflection_signals"] = normalized["qualitative_signals"]
+        normalized["lifecycle_signals"] = normalized["qualitative_signals"]
+    elif isinstance(signals, str) and signals.strip():
+        normalized["qualitative_signals"] = [signals.strip()]
+        normalized["inflection_signals"] = normalized["qualitative_signals"]
+
+    stage = industry_result.get("stage") or {}
+    stage_name = stage.get("name") if isinstance(stage, dict) else stage
+    direction = industry_result.get("direction") or (
+        stage.get("direction") if isinstance(stage, dict) else None
+    )
+    if stage_name:
+        normalized.setdefault("industry_lifecycle_stage", stage_name)
+    if direction:
+        normalized.setdefault("industry_sentiment_direction", direction)
+    if industry_result.get("score") is not None:
+        normalized.setdefault("industry_heat_score", industry_result.get("score"))
+    if industry_result.get("confidence") is not None:
+        normalized.setdefault("industry_signal_confidence", industry_result.get("confidence"))
+
+    return normalized
+
+
 def _extract_metrics_from_statements(financial_data: dict) -> dict:
     balance = financial_data.get("balance") or {}
     income = financial_data.get("income") or {}
-    cashflow = financial_data.get("cashflow") or {}
 
     # 提取最新一期数据行（兼容 EastMoney API 的多种返回格式）
     def _latest_row(statement: Any) -> dict:
@@ -419,7 +495,6 @@ def _extract_metrics_from_statements(financial_data: dict) -> dict:
 
     b_row = _latest_row(balance)
     i_row = _latest_row(income)
-    cf_row = _latest_row(cashflow)
 
     result: Dict[str, Any] = {}
 
@@ -504,7 +579,7 @@ def _build_collection_tasks(
         # 完全无数据：生成全部核心字段任务
         real_signals = {}
     else:
-        real_signals = real_data.get("real_signals", {})
+        real_signals = real_data.get("company_signals") or real_data.get("real_signals", {})
 
     # 字段元数据：label / unit / required / 搜索关键词模板
     FIELD_META = {

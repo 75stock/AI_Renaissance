@@ -1,5 +1,5 @@
 """
-股票名称关键词 → preset 映射（大规模覆盖版）
+股票名称关键词 → preset 路由映射
 
 覆盖逻辑：
   - 按preset分类，收录该行业常见公司名称关键词
@@ -184,16 +184,16 @@ STORAGE_NAMES = {
     "北京君正": "storage", "协创数据": "storage",
 }
 
-# 合并为统一映射
-NAME_TO_PRESET_V2 = {}
+# 合并为统一映射。该表只用于 preset 路由，不参与景气度打分。
+NAME_TO_PRESET = {}
 for d in [AI_CHIP_NAMES, OPTICAL_NAMES, INFRA_NAMES, ENERGY_NAMES, ROBOTICS_NAMES, STORAGE_NAMES]:
-    NAME_TO_PRESET_V2.update(d)
+    NAME_TO_PRESET.update(d)
 
 # 去重统计
 if __name__ == "__main__":
     from collections import Counter
-    presets = Counter(NAME_TO_PRESET_V2.values())
-    print(f"名称关键词映射总计: {len(NAME_TO_PRESET_V2)} 个")
-    print(f"Preset 分布:")
+    presets = Counter(NAME_TO_PRESET.values())
+    print(f"名称关键词映射总计: {len(NAME_TO_PRESET)} 个")
+    print("Preset 分布:")
     for p, c in presets.most_common():
         print(f"  {p}: {c} 个")

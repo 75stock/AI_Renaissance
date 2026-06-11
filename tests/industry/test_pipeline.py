@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Industrial Sentinel V4.5 Pipeline 端到端测试
+Industrial Sentinel Pipeline 端到端测试
 测试标的: 深南电路 (002916.SZ)
 
 验证项:
@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from pathlib import Path
+import pytest
 
 SKILL_DIR = Path(__file__).parent.parent.parent / "skills" / "industry" / "industrial_sentinel"
 sys.path.insert(0, str(SKILL_DIR))
@@ -28,7 +29,7 @@ def test_pipeline():
     from core.pipeline import run_pipeline
 
     print("=" * 70)
-    print("V4.5 Pipeline 端到端测试")
+    print("Industrial Sentinel Pipeline 端到端测试")
     print("=" * 70)
     print(f"测试标的: 深南电路 (002916.SZ)")
     print(f"目标耗时: < 60 秒")
@@ -42,11 +43,11 @@ def test_pipeline():
         print(f"\n❌ Pipeline 执行失败: {e}")
         import traceback
         traceback.print_exc()
-        return False, str(e), 0
+        pytest.fail(f"Pipeline 执行失败: {e}")
 
     if not os.path.exists(output_path):
         print(f"\n❌ 输出文件不存在: {output_path}")
-        return False, "输出文件不存在", elapsed
+        pytest.fail(f"输出文件不存在: {output_path}")
 
     with open(output_path, "r", encoding="utf-8") as f:
         html_content = f.read()
@@ -125,9 +126,8 @@ def test_pipeline():
     print(f"输出文件: {output_path}")
     print("=" * 70)
 
-    return failed == 0, f"{passed}/{len(tests)} 通过", elapsed
+    assert failed == 0, f"Pipeline 验证失败: {passed}/{len(tests)} 通过"
 
 
 if __name__ == "__main__":
-    success, msg, elapsed = test_pipeline()
-    sys.exit(0 if success else 1)
+    test_pipeline()

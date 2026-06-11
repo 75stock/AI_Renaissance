@@ -7,14 +7,12 @@
     python3 scripts/fill_data.py <stock_code> --batch items.json
 
 field 与 real_data 路径对应:
-    revenue_growth      → real_signals.revenue_growth
-    gross_margin        → real_signals.gross_margin
-    order_backlog       → real_signals.order_backlog
-    capacity_utilization→ real_signals.capacity_utilization
-    price_yoy           → real_signals.price_yoy
-    inventory_days      → real_signals.inventory_days
-    rd_ratio            → real_signals.rd_ratio
-    net_profit_parent   → real_signals.net_profit_parent
+    industry_market_growth → industry_signals.industry_market_growth
+    industry_order_growth  → industry_signals.industry_order_growth
+    industry_price_yoy     → industry_signals.industry_price_yoy
+    peer_gross_margin      → peer_basket_signals.gross_margin_median
+    company_revenue_growth → company_signals.revenue_growth
+    rd_ratio               → company_signals.rd_ratio
     stock_name          → 顶层 stock_name
     industry            → 顶层 industry
 """
@@ -38,31 +36,36 @@ FIELD_TO_PATH = {
     "sub_industry": "sub_industry",
     "preset": "preset",
     "chain_position": "chain_position",
-    # real_signals 字段
-    "revenue_growth": "real_signals.revenue_growth",
-    "gross_margin": "real_signals.gross_margin",
-    "order_backlog": "real_signals.order_backlog",
-    "capacity_utilization": "real_signals.capacity_utilization",
-    "price_yoy": "real_signals.price_yoy",
-    "inventory_days": "real_signals.inventory_days",
-    "rd_ratio": "real_signals.rd_ratio",
-    "research_expense_ratio": "real_signals.research_expense_ratio",
-    "net_profit_parent": "real_signals.net_profit_parent",
-    "revenue": "real_signals.revenue",
-    "operating_cash_flow": "real_signals.operating_cash_flow",
-    "fixed_asset": "real_signals.fixed_asset",
-    "total_asset": "real_signals.total_asset",
-    "capex_plan": "real_signals.capex_plan",
-    # 新增: 结构转型 + 趋势 + 行业验证字段
-    "segment_data": "real_signals.segment_data",
-    "gross_margin_history": "real_signals.gross_margin_history",
-    "market_share": "real_signals.market_share",
-    "major_customer_orders": "real_signals.major_customer_orders",
-    "inflection_signals": "real_signals.inflection_signals",
-    "lifecycle_signals": "real_signals.lifecycle_signals",
-    # 新增: A股可获取的替代指标
-    "contract_liability": "real_signals.contract_liability",
-    "fixed_asset_turnover": "real_signals.fixed_asset_turnover",
+    # System A 行业级字段
+    "industry_market_growth": "industry_signals.industry_market_growth",
+    "industry_demand_growth": "industry_signals.industry_demand_growth",
+    "industry_order_growth": "industry_signals.industry_order_growth",
+    "industry_order_backlog": "industry_signals.industry_order_backlog",
+    "industry_capacity_utilization": "industry_signals.industry_capacity_utilization",
+    "industry_price_yoy": "industry_signals.industry_price_yoy",
+    "industry_inventory_days": "industry_signals.industry_inventory_days",
+    "industry_capex_plan": "industry_signals.industry_capex_plan",
+    "industry_policy_count": "industry_signals.industry_policy_count",
+    "industry_penetration_rate": "industry_signals.industry_penetration_rate",
+    "inflection_signals": "industry_signals.inflection_signals",
+    "lifecycle_signals": "industry_signals.lifecycle_signals",
+    # 同业篮子验证字段
+    "peer_revenue_growth": "peer_basket_signals.revenue_growth_median",
+    "peer_gross_margin": "peer_basket_signals.gross_margin_median",
+    "peer_inventory_days": "peer_basket_signals.inventory_days_median",
+    # System B 个股字段
+    "company_revenue_growth": "company_signals.revenue_growth",
+    "rd_ratio": "company_signals.rd_ratio",
+    "research_expense_ratio": "company_signals.research_expense_ratio",
+    "net_profit_parent": "company_signals.net_profit_parent",
+    "revenue": "company_signals.revenue",
+    "operating_cash_flow": "company_signals.operating_cash_flow",
+    "fixed_asset": "company_signals.fixed_asset",
+    "total_asset": "company_signals.total_asset",
+    "market_share": "company_signals.market_share",
+    "major_customer_orders": "company_signals.major_customer_orders",
+    "contract_liability": "company_signals.contract_liability",
+    "fixed_asset_turnover": "company_signals.fixed_asset_turnover",
 }
 
 # ========== capex_plan 枚举校验 ==========
@@ -108,7 +111,9 @@ def _load_or_create(stock_code: str) -> Dict[str, Any]:
         "industry": "数据缺失",
         "preset": "generic",
         "generated_at": datetime.now().strftime("%Y-%m-%d"),
-        "real_signals": {},
+        "industry_signals": {},
+        "peer_basket_signals": {},
+        "company_signals": {},
         "industry_data": [],
     }
 
@@ -141,7 +146,7 @@ def fill_field(
     # 解析字段路径
     path = FIELD_TO_PATH.get(field, field)
     if "." not in path and path not in ("stock_name", "industry", "sub_industry", "preset", "chain_position"):
-        path = f"real_signals.{field}"
+        path = f"industry_signals.{field}"
 
     # 值转换
     if isinstance(value, str):
@@ -175,21 +180,24 @@ def fill_field(
 
     # 写入 source 信息
     if field not in ("stock_name", "industry", "stock_code", "preset"):
-        rs = data.setdefault("real_signals", {})
+        root = path.split(".", 1)[0] if "." in path else "industry_signals"
+        target = data.setdefault(root, {})
         source_key = f"{field}_source"
         if source:
-            rs[source_key] = source
+            target[source_key] = source
         if source_date:
-            rs[f"{field}_date"] = source_date
+            target[f"{field}_date"] = source_date
         if source_url:
-            rs[f"{field}_url"] = source_url
+            target[f"{field}_url"] = source_url
 
     # 更新缺失计数
-    rs = data.get("real_signals", {})
-    core_fields = ["revenue_growth", "gross_margin", "order_backlog",
-                   "capacity_utilization", "price_yoy", "inventory_days",
-                   "contract_liability", "fixed_asset_turnover"]
-    missing = sum(1 for f in core_fields if rs.get(f) is None)
+    industry = data.get("industry_signals", {})
+    core_fields = [
+        "industry_market_growth", "industry_order_growth",
+        "industry_capacity_utilization", "industry_price_yoy",
+        "industry_inventory_days", "industry_capex_plan",
+    ]
+    missing = sum(1 for f in core_fields if industry.get(f) is None)
     data["_missing_count"] = missing
     data["_last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -251,19 +259,32 @@ def _auto_run_pipeline(stock_code: str):
 def show_missing(stock_code: str) -> List[str]:
     """显示缺失字段列表。"""
     data = _load_or_create(stock_code)
-    rs = data.get("real_signals", {})
-    core_fields = ["revenue_growth", "gross_margin", "order_backlog",
-                   "capacity_utilization", "price_yoy", "inventory_days",
-                   "contract_liability", "fixed_asset_turnover",
-                   "rd_ratio", "net_profit_parent"]
-    missing = [f for f in core_fields if rs.get(f) is None]
-    filled = [f for f in core_fields if rs.get(f) is not None]
+    industry = data.get("industry_signals", {})
+    peer = data.get("peer_basket_signals", {})
+    company = data.get("company_signals", {})
+    core_paths = {
+        "industry_market_growth": industry,
+        "industry_order_growth": industry,
+        "industry_capacity_utilization": industry,
+        "industry_price_yoy": industry,
+        "industry_inventory_days": industry,
+        "industry_capex_plan": industry,
+        "peer_revenue_growth": peer,
+        "peer_gross_margin": peer,
+        "company_revenue_growth": company,
+        "rd_ratio": company,
+    }
+    missing = [f for f, source in core_paths.items() if source.get(f) is None and FIELD_TO_PATH.get(f, "").split(".")[-1] not in source]
+    filled = [f for f in core_paths if f not in missing]
 
     print(f"📊 {stock_code} 数据状态:")
     print(f"  已填充: {len(filled)}/{len(core_fields)}")
     if filled:
         for f in filled:
-            print(f"    ✅ {f} = {rs[f]}")
+            path = FIELD_TO_PATH.get(f, f)
+            root, _, key = path.partition(".")
+            value = data.get(root, {}).get(key, data.get(root, {}).get(f))
+            print(f"    ✅ {f} = {value}")
     if missing:
         for f in missing:
             print(f"    ❌ {f} 缺失")

@@ -40,11 +40,24 @@ class IndustrialSentinelDataSource:
     网络异常时自动降级到本地缓存，确保 Agent 始终有数据可用。
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        industry_data_source: Optional[Any] = None,
+        financial_data_source: Optional[Any] = None,
+        cache_dir: Optional[Path] = None,
+    ):
         self.name = "IndustrialSentinel数据源"
-        self._industry_ds = IndustrySentimentDataSource() if IndustrySentimentDataSource else None
-        self._financial_ds = EastMoneyDataSource() if EastMoneyDataSource else None
-        self._cache_dir = self._find_cache_dir()
+        self._industry_ds = (
+            industry_data_source
+            if industry_data_source is not None
+            else IndustrySentimentDataSource() if IndustrySentimentDataSource else None
+        )
+        self._financial_ds = (
+            financial_data_source
+            if financial_data_source is not None
+            else EastMoneyDataSource() if EastMoneyDataSource else None
+        )
+        self._cache_dir = Path(cache_dir) if cache_dir else self._find_cache_dir()
         logger.info(f"[{self.name}] 初始化完成 (industry={self._industry_ds is not None}, financial={self._financial_ds is not None})")
 
     def get_data(self, stock_code: str) -> Dict[str, Any]:
@@ -105,7 +118,18 @@ class IndustrialSentinelDataSource:
             logger.info(f"[{self.name}] 行业数据降级到缓存")
             return cached, True, ""
 
-        # 3. 返回空 + 降级原因
+        # 3. 降级到本地 preset 路由。这里只提供分析框架，不提供真实景气结论。
+        preset_fallback = self._build_preset_fallback(stock_code)
+        if preset_fallback:
+            reason = (
+                f"【行业情绪数据缺失】无法获取 {stock_code} 的实时行业板块景气数据，"
+                f"已降级到本地 preset 路由：{preset_fallback.get('preset')}。"
+                "该结果只用于选择分析框架，不代表真实行业景气度。"
+            )
+            logger.info(f"[{self.name}] 行业数据降级到本地 preset 路由")
+            return preset_fallback, False, reason
+
+        # 4. 返回空 + 降级原因
         reason = (
             f"【行业情绪数据缺失】无法获取 {stock_code} 的行业板块景气数据。"
             f"建议补充方式：1) 使用 AI 搜索 '{stock_code} 所属行业 板块景气度'；"
@@ -136,6 +160,9 @@ class IndustrialSentinelDataSource:
                     for v in result.values()
                 ):
                     logger.warning(f"[{self.name}] 财务 API 返回错误，视为获取失败")
+                    result = None
+                if result and not self._has_financial_payload(result):
+                    logger.warning(f"[{self.name}] 财务 API 返回空报表，视为获取失败")
                     result = None
                 if result:
                     self._save_cache(f"{stock_code}_financial", result)
@@ -172,6 +199,65 @@ class IndustrialSentinelDataSource:
                 code = code[:-len(suffix)]
                 break
         return code
+
+    def _has_financial_payload(self, data: Dict[str, Any]) -> bool:
+        """判断三张财报里是否至少有一张包含可用行数据。"""
+        for sheet_name in ("balance", "income", "cashflow"):
+            sheet = data.get(sheet_name)
+            if isinstance(sheet, list) and len(sheet) > 0:
+                return True
+            if isinstance(sheet, dict):
+                rows = sheet.get("data")
+                if isinstance(rows, list) and len(rows) > 0:
+                    return True
+                if "data" not in sheet and len(sheet) > 0:
+                    return True
+        return False
+
+    def _build_preset_fallback(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """Build a framework-only fallback from local preset routing.
+
+        This keeps provider logic in data_sources while making it explicit that
+        the returned payload is not real industry sentiment data.
+        """
+        try:
+            from skills.industry.industrial_sentinel.core.auto_detect_preset import (
+                auto_detect_preset,
+            )
+
+            preset = auto_detect_preset(
+                stock_code,
+                self._cache_dir,
+                allow_provider_lookup=False,
+            )
+        except Exception as exc:
+            logger.debug(f"[{self.name}] 本地 preset 路由失败: {exc}")
+            return None
+
+        if not preset or preset == "generic":
+            return None
+
+        industry_name = self._load_preset_industry_name(preset) or preset
+        return {
+            "status": "preset_only",
+            "industry_name": industry_name,
+            "preset": preset,
+            "signals": {},
+            "confidence": 0.0,
+            "source": "local_preset_routing",
+        }
+
+    def _load_preset_industry_name(self, preset: str) -> Optional[str]:
+        """Read industry_name from the local preset YAML when available."""
+        try:
+            from skills.industry.industrial_sentinel.core.pipeline import load_preset_yaml
+
+            yaml_data = load_preset_yaml(preset)
+            if isinstance(yaml_data, dict):
+                return yaml_data.get("industry_name") or yaml_data.get("chain_name")
+        except Exception as exc:
+            logger.debug(f"[{self.name}] preset YAML 读取失败: {exc}")
+        return None
 
     # ── 缓存管理 ──
 

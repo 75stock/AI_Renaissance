@@ -13,7 +13,6 @@ Pipeline: 股票代码 → 加载真实数据 → 拐点判定 → 类型分析 
 
 import json
 import logging
-import os
 import re
 import sys
 from datetime import datetime
@@ -26,7 +25,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("pipeline_v45")
+logger = logging.getLogger("industrial_sentinel_pipeline")
 
 # ── 路径 ──
 SCRIPT_DIR = Path(__file__).parent.parent.resolve()
@@ -41,14 +40,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from core.system_a import (
     determine_inflection_state,
-    determine_lifecycle_phase,
-    detect_dimension_contradictions,
-    InflectionState,
 )
 from core.system_b import (
-    identify_stock_type,
     get_stock_type_description,
-    get_adaptive_weights,
 )
 
 # ═══════════════════════════════════════════════════════════════
@@ -147,6 +141,79 @@ def _safe_num(value) -> Optional[float]:
             return None
     return None
 
+
+def _first_present(source: Dict[str, Any], keys: List[str]) -> Any:
+    for key in keys:
+        value = source.get(key)
+        if value not in (None, "", "数据缺失", "待补充"):
+            return value
+    return None
+
+
+def _build_system_a_signals(real_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """构造 System A 输入：行业级信号优先，同业篮子其次，旧 real_signals 仅兼容兜底。"""
+    if not real_data:
+        return {}
+
+    industry = real_data.get("industry_signals") or {}
+    peer = real_data.get("peer_basket_signals") or {}
+    legacy = real_data.get("real_signals") or {}
+    if not isinstance(industry, dict):
+        industry = {"qualitative_signals": industry}
+    if not isinstance(peer, dict):
+        peer = {}
+    if not isinstance(legacy, dict):
+        legacy = {}
+
+    result: Dict[str, Any] = {}
+    scopes: Dict[str, str] = {}
+
+    def put(target: str, source: Dict[str, Any], keys: List[str], scope: str) -> None:
+        if target in result:
+            return
+        value = _first_present(source, keys)
+        if value is None:
+            return
+        result[target] = value
+        scopes[target] = scope
+        source_key = next((k for k in keys if source.get(k) == value), "")
+        if source_key and source.get(f"{source_key}_source"):
+            result[f"{target}_source"] = source[f"{source_key}_source"]
+
+    put("revenue_growth", industry, ["industry_revenue_growth", "industry_market_growth", "industry_demand_growth"], "industry")
+    put("order_backlog", industry, ["industry_order_growth", "industry_order_backlog", "industry_demand_growth"], "industry")
+    put("capacity_utilization", industry, ["industry_capacity_utilization", "industry_capacity_util"], "industry")
+    put("price_yoy", industry, ["industry_price_yoy", "industry_price_trend"], "industry")
+    put("inventory_days", industry, ["industry_inventory_days", "industry_inventory_cycle"], "industry")
+    put("capex_plan", industry, ["industry_capex_plan", "industry_capacity_expansion"], "industry")
+    put("policy_count", industry, ["industry_policy_count"], "industry")
+    put("policy_score", industry, ["industry_policy_score"], "industry")
+    put("penetration_rate", industry, ["industry_penetration_rate"], "industry")
+    put("competition_score", industry, ["industry_competition_score"], "industry")
+
+    put("revenue_growth", peer, ["revenue_growth_median", "peer_revenue_growth_median"], "peer_basket")
+    put("gross_margin", peer, ["gross_margin_median", "peer_gross_margin_median"], "peer_basket")
+    put("inventory_days", peer, ["inventory_days_median", "peer_inventory_days_median"], "peer_basket")
+    put("capex_plan", peer, ["capex_trend", "capex_growth_median"], "peer_basket")
+
+    for key in ("inflection_signals", "lifecycle_signals", "qualitative_signals"):
+        value = industry.get(key)
+        if value:
+            result[key] = value
+            scopes[key] = "industry"
+
+    core_fields = ["revenue_growth", "order_backlog", "capacity_utilization", "price_yoy", "inventory_days", "capex_plan"]
+    if not any(result.get(field) is not None for field in core_fields):
+        for key, value in legacy.items():
+            if value not in (None, "", "数据缺失", "待补充"):
+                result[key] = value
+                scopes[key] = "legacy_company_fallback"
+        if legacy:
+            result["_system_a_warning"] = "System A 使用旧 real_signals 兼容路径；建议补充 industry_signals 或 peer_basket_signals。"
+
+    result["_signal_scope"] = scopes
+    return result
+
 # ═══════════════════════════════════════════════════════════════
 # Step 2: 生命周期阶段判定（基于真实数据）
 # ═══════════════════════════════════════════════════════════════
@@ -186,7 +253,7 @@ def determine_lifecycle_from_segments(segment_data: list) -> dict:
 
 def determine_lifecycle_from_real_data(real_data: Optional[Dict]) -> Dict[str, Any]:
     """
-    基于真实财务指标判定生命周期阶段。
+    基于行业级指标和同业验证信号判定生命周期阶段。
     无算法评分，仅做逻辑推理。
     """
     if not real_data:
@@ -198,10 +265,10 @@ def determine_lifecycle_from_real_data(real_data: Optional[Dict]) -> Dict[str, A
             "color": "#64748b",
             "color_bg": "rgba(100,116,139,0.12)",
             "indicators": [],
-            "analysis": "请补充财报数据或行业研报数据以进行生命周期判定。",
+            "analysis": "请补充行业级数据或同业篮子数据以进行生命周期判定。",
         }
 
-    signals = real_data.get("real_signals", {})
+    signals = _build_system_a_signals(real_data)
     
     # 优化1: 优先检查结构转型
     seg_data = signals.get("segment_data", [])
@@ -216,52 +283,79 @@ def determine_lifecycle_from_real_data(real_data: Optional[Dict]) -> Dict[str, A
     backlog = _safe_num(backlog_raw)
     capex = str(signals.get("capex_plan", "")).lower()
     util = _safe_num(signals.get("capacity_utilization"))
+    price_yoy = _safe_num(signals.get("price_yoy"))
+    inv_days = _safe_num(signals.get("inventory_days"))
+    penetration = _safe_num(signals.get("penetration_rate"))
 
     # 推理逻辑
     indicators = []
     if rev_growth is not None:
-        indicators.append({"label": "营收增速", "value": f"{rev_growth:.0f}%", "trend": "up" if rev_growth > 20 else "flat", "source": signals.get("revenue_growth_source", "财报")})
+        indicators.append({"label": "行业/同业增速", "value": f"{rev_growth:.0f}%", "trend": "up" if rev_growth > 20 else "flat", "source": signals.get("revenue_growth_source", signals.get("_signal_scope", {}).get("revenue_growth", "行业数据"))})
     if gm is not None:
-        indicators.append({"label": "毛利率", "value": f"{gm:.1f}%", "trend": "up" if gm > 20 else "flat", "source": signals.get("gross_margin_source", "财报")})
+        indicators.append({"label": "同业毛利率", "value": f"{gm:.1f}%", "trend": "up" if gm > 20 else "flat", "source": signals.get("gross_margin_source", signals.get("_signal_scope", {}).get("gross_margin", "同业篮子"))})
     if backlog is not None:
-        indicators.append({"label": "订单backlog", "value": f"${backlog:.0f}M", "trend": "up", "source": signals.get("order_backlog_source", "财报")})
+        indicators.append({"label": "行业订单/需求", "value": f"{backlog:.0f}", "trend": "up", "source": signals.get("order_backlog_source", signals.get("_signal_scope", {}).get("order_backlog", "行业数据"))})
     elif backlog_raw is not None and isinstance(backlog_raw, str) and backlog_raw.strip() not in ("数据缺失", "待补充", "", "null", "None"):
-        indicators.append({"label": "订单/需求", "value": backlog_raw, "trend": "up", "source": signals.get("order_backlog_source", "财报")})
+        indicators.append({"label": "行业订单/需求", "value": backlog_raw, "trend": "up", "source": signals.get("order_backlog_source", signals.get("_signal_scope", {}).get("order_backlog", "行业数据"))})
     if util is not None:
-        indicators.append({"label": "产能利用率", "value": f"{util:.0f}%", "trend": "up" if util > 80 else "flat", "source": signals.get("capacity_utilization_source", "财报")})
+        indicators.append({"label": "行业产能利用率", "value": f"{util:.0f}%", "trend": "up" if util > 80 else "flat", "source": signals.get("capacity_utilization_source", signals.get("_signal_scope", {}).get("capacity_utilization", "行业数据"))})
+    if price_yoy is not None:
+        indicators.append({"label": "行业价格同比", "value": f"{price_yoy:.1f}%", "trend": "up" if price_yoy > 0 else "down", "source": signals.get("price_yoy_source", signals.get("_signal_scope", {}).get("price_yoy", "行业数据"))})
+    if inv_days is not None:
+        indicators.append({"label": "行业库存天数", "value": f"{inv_days:.0f}天", "trend": "down" if inv_days < 45 else "flat", "source": signals.get("inventory_days_source", signals.get("_signal_scope", {}).get("inventory_days", "行业数据"))})
+    if penetration is not None:
+        indicators.append({"label": "行业渗透率", "value": f"{penetration:.1f}%", "trend": "up" if penetration < 30 else "flat", "source": signals.get("penetration_rate_source", signals.get("_signal_scope", {}).get("penetration_rate", "行业数据"))})
     if capex:
         indicators.append({"label": "扩产状态", "value": "进行中" if capex == "underway" else capex, "trend": "up", "source": signals.get("capex_plan_source", "新闻")})
 
     # 生命周期判定逻辑
-    if rev_growth is not None and rev_growth >= 30 and capex == "underway" and (util is None or util >= 80):
+    demand_positive = rev_growth is not None and rev_growth >= 15
+    demand_hot = rev_growth is not None and rev_growth >= 30
+    order_positive = backlog is not None and backlog >= 0
+    price_positive = price_yoy is not None and price_yoy >= 0
+    supply_tight = util is not None and util >= 85
+    inventory_heavy = inv_days is not None and inv_days >= 70
+
+    if penetration is not None and penetration < 15 and (demand_hot or order_positive):
+        stage = "导入期"
+        stage_short = "导入"
+        subtitle = "渗透率低位加速"
+        desc = f"行业渗透率 {penetration:.1f}% 仍处低位，需求/订单已开始改善，处于导入期向成长期切换窗口。"
+        color = "#38bdf8"
+        color_bg = "rgba(56,189,248,0.12)"
+        analysis = "导入期核心特征：渗透率低、需求弹性大、供给仍在爬坡。重点跟踪技术验证、客户导入和单位经济性。"
+    elif demand_hot and capex == "underway" and (util is None or util >= 80):
         stage = "成长期"
         stage_short = "成长"
         subtitle = "高速扩张"
-        desc = f"营收增速 {rev_growth:.0f}% 处于高速区间，产能扩张已启动，订单 backlog 强劲。行业处于成长期加速阶段，AI基础设施需求驱动 multi-year growth cycle。"
+        desc = f"行业/同业增速 {rev_growth:.0f}% 处于高速区间，产能扩张已启动，订单或需求强劲。行业处于成长期加速阶段。"
         color = "#10b981"
         color_bg = "rgba(16,185,129,0.12)"
         analysis = "成长期核心特征：需求增速 > 产能增速，价格有支撑，毛利率修复中。风险在于扩产进度和地缘政治（如出口许可）。"
-    elif rev_growth is not None and rev_growth >= 15:
+    elif demand_positive or (penetration is not None and penetration < 30 and (order_positive or price_positive)):
         stage = "成长期"
         stage_short = "成长"
         subtitle = "稳健增长"
-        desc = f"营收增速 {rev_growth:.0f}% 保持较快增长，行业处于成长期。"
+        growth_text = f"{rev_growth:.0f}%" if rev_growth is not None else "数据缺失"
+        desc = f"行业/同业增速 {growth_text}，订单或价格出现改善，行业处于成长期。"
         color = "#10b981"
         color_bg = "rgba(16,185,129,0.12)"
         analysis = "成长期：关注产能利用率是否接近瓶颈，以及竞争格局变化。"
-    elif rev_growth is not None and rev_growth > 0:
+    elif (penetration is not None and penetration >= 30 and rev_growth is not None and rev_growth >= 0) or (rev_growth is not None and 0 < rev_growth < 15):
         stage = "成熟期"
         stage_short = "成熟"
         subtitle = "增速放缓"
-        desc = f"营收增速 {rev_growth:.0f}% 温和，行业可能进入成熟期。"
+        growth_text = f"{rev_growth:.0f}%" if rev_growth is not None else "数据缺失"
+        desc = f"行业/同业增速 {growth_text} 温和，渗透率或竞争格局显示行业可能进入成熟期。"
         color = "#f59e0b"
         color_bg = "rgba(245,158,11,0.12)"
         analysis = "成熟期：关注市场份额稳定性、成本控制、分红能力。"
-    elif rev_growth is not None and rev_growth <= 0:
+    elif (rev_growth is not None and rev_growth <= 0) or (price_yoy is not None and price_yoy < -5) or (inventory_heavy and not supply_tight):
         stage = "衰退期"
         stage_short = "衰退"
         subtitle = "需求收缩"
-        desc = f"营收增速 {rev_growth:.0f}% 非正，行业面临需求收缩。"
+        growth_text = f"{rev_growth:.0f}%" if rev_growth is not None else "数据缺失"
+        desc = f"行业/同业增速 {growth_text}，价格、库存或产能信号显示行业面临需求收缩。"
         color = "#ef4444"
         color_bg = "rgba(239,68,68,0.12)"
         analysis = "衰退期：除非有明确的供给侧出清或技术换代催化剂，否则回避。"
@@ -269,10 +363,10 @@ def determine_lifecycle_from_real_data(real_data: Optional[Dict]) -> Dict[str, A
         stage = "数据缺失"
         stage_short = "?"
         subtitle = "无数据"
-        desc = "缺少营收增速等关键指标，无法判定生命周期阶段。"
+        desc = "缺少行业增速、产能、需求等关键指标，无法判定生命周期阶段。"
         color = "#64748b"
         color_bg = "rgba(100,116,139,0.12)"
-        analysis = "请补充真实财报数据。"
+        analysis = "请补充行业级数据或同业篮子验证数据。"
 
     return {
         "stage": stage,
@@ -296,7 +390,7 @@ def cross_validate_with_industry(real_data):
 
 def determine_inflection_from_real_data(real_data: Optional[Dict]) -> Dict[str, Any]:
     """
-    调用 system_a.determine_inflection_state 的 路径（real_signals）。
+    调用 system_a.determine_inflection_state 的行业信号路径。
     """
     if not real_data:
         return {
@@ -308,8 +402,8 @@ def determine_inflection_from_real_data(real_data: Optional[Dict]) -> Dict[str, 
             "inflection_logic": "未提供真实数据，无法判定拐点状态。",
         }
 
-    signals = real_data.get("real_signals", {})
-    # 调用 system_a 的 真实信号路径
+    signals = _build_system_a_signals(real_data)
+    # 调用 system_a 的行业信号路径
     # 优化3: 行业交叉验证信号注入
     cross_result = cross_validate_with_industry(real_data)
     validation_signals = cross_result.get("validation_signals", [])
@@ -329,12 +423,12 @@ def determine_inflection_from_real_data(real_data: Optional[Dict]) -> Dict[str, 
     # 构建数据卡片HTML
     data_cards = []
     card_keys = [
-        ("revenue_growth", "营收增速", "%", "财报"),
-        ("gross_margin", "毛利率", "%", "财报"),
-        ("order_backlog", "订单backlog", "M", "财报"),
-        ("capacity_utilization", "产能利用率", "%", "新闻"),
-        ("price_yoy", "价格同比", "%", "研报"),
-        ("inventory_days", "库存天数", "天", "财报"),
+        ("revenue_growth", "行业/同业增速", "%", "行业/同业"),
+        ("gross_margin", "同业毛利率", "%", "同业篮子"),
+        ("order_backlog", "行业订单/需求", "", "行业数据"),
+        ("capacity_utilization", "行业产能利用率", "%", "行业数据"),
+        ("price_yoy", "行业价格同比", "%", "行业数据"),
+        ("inventory_days", "行业库存天数", "天", "行业数据"),
     ]
     for key, label, unit, src_type in card_keys:
         val = signals.get(key)
@@ -399,6 +493,8 @@ def determine_system_b_from_real_data(real_data: Optional[Dict]) -> Dict[str, An
         }
 
     sb_input = real_data.get("system_b_input", {})
+    if not sb_input:
+        sb_input = real_data.get("company_signals", {}) or real_data.get("real_signals", {})
     stock_type = real_data.get("system_b_type", "mixed")
     type_reason = real_data.get("system_b_type_reason", "")
     contradiction = real_data.get("system_b_core_contradiction", "")
@@ -477,7 +573,7 @@ def load_cross_verify_data(cross_verify: Dict[str, Any]) -> Dict[str, Any]:
                         "name": data.get("stock_name", code),
                         "revenue_growth": signals.get("revenue_growth"),
                         "gross_margin": signals.get("gross_margin"),
-                        "source": "财报",
+                        "source": "同业财报",
                     }
                     break
             
@@ -507,10 +603,8 @@ def build_cross_verify_html(cross_data: Dict[str, Any], preset_name: str) -> str
             if matched:
                 rev = f"{matched['revenue_growth']:.1f}%" if matched.get('revenue_growth') is not None else "—"
                 gm = f"{matched['gross_margin']:.1f}%" if matched.get('gross_margin') is not None else "—"
-                metric_text = f"营收增速 {rev}"
-                quality_text = f"毛利率 {gm}"
+                quality_text = f"同业毛利率 {gm}"
             else:
-                metric_text = "环节数据缺失"
                 quality_text = "—"
             
             # 第二列显示环节名+小字标注数据来源
@@ -518,10 +612,10 @@ def build_cross_verify_html(cross_data: Dict[str, Any], preset_name: str) -> str
             if matched:
                 name_cell += f'<br/><span style="font-size:11px;color:var(--text-muted)">来源: {matched["name"]}({matched["code"]})</span>'
             
-            # 第三列合并指标和营收
+            # 第三列合并指标和同业验证
             metric_details = "<br/>".join(metrics) if metrics else "—"
             if matched and matched.get('revenue_growth') is not None:
-                metric_details += f'<br/><span style="color:var(--green)">营收增速 {rev}</span>'
+                metric_details += f'<br/><span style="color:var(--green)">同业增速 {rev}</span>'
             
             rows.append(f"<tr><td>{label}</td><td>{name_cell}</td><td>{metric_details}</td><td>{quality_text}</td></tr>")
     
@@ -607,7 +701,7 @@ def _build_chain_cards(preset_data, chain_position: str, industry_name: str) -> 
     html_parts = ['<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">']
     for card in cards:
         parts = [
-            f'<div class="card" style="border-left:3px solid #2563eb;">',
+            '<div class="card" style="border-left:3px solid #2563eb;">',
             f'<div style="font-weight:600;font-size:14px;color:#e2e8f0;margin-bottom:8px;">{card["title"]}</div>',
         ]
         if card["profit"]:
@@ -660,10 +754,10 @@ def _build_chain_cards(preset_data, chain_position: str, industry_name: str) -> 
     return "\n".join(html_parts)
 
 # ═══════════════════════════════════════════════════════════════
-# Step 6: HTML 生成（V4 模板）
+# Step 6: HTML 生成
 # ═══════════════════════════════════════════════════════════════
 
-def generate_html_v45(
+def render_html_report(
     stock_info: Dict[str, str],
     lifecycle: Dict[str, Any],
     inflection: Dict[str, Any],
@@ -671,10 +765,10 @@ def generate_html_v45(
     industry_data: List[Dict],
     chain_html: str,
 ) -> str:
-    """使用 v4 模板生成 HTML"""
-    template_path = TEMPLATES_DIR / "pipeline-output-v4.html"
+    """使用统一模板生成 HTML"""
+    template_path = TEMPLATES_DIR / "pipeline-output.html"
     if not template_path.exists():
-        logger.error("V4 模板不存在: %s", template_path)
+        logger.error("HTML 模板不存在: %s", template_path)
         return ""
 
     with open(template_path, "r", encoding="utf-8") as f:
@@ -782,7 +876,9 @@ def build_framework_from_preset(stock_code: str, preset_name: str) -> Dict[str, 
         "desc": "未找到 real_data.json，基于 preset YAML 输出产业链框架信息。请补充财报数据以启用完整生命周期判定。",
         "color": "#f59e0b",
         "color_bg": "rgba(245,158,11,0.12)",
-        "indicators": ["数据缺失"],
+        "indicators": [
+            {"label": "真实数据", "value": "缺失", "source": "框架降级"},
+        ],
         "analysis": "待采集真实数据后重新运行 pipeline。",
     }
 
@@ -854,7 +950,7 @@ def _chain_summary_to_html(chain_summary: list) -> str:
             bargain = item.get("bargain_power", "")
             
             parts = [
-                f'<div class="card" style="border-left:3px solid #2563eb;">',
+                '<div class="card" style="border-left:3px solid #2563eb;">',
                 f'<div style="font-weight:600;font-size:14px;color:#e2e8f0;margin-bottom:8px;">{layer_cn} · {item.get("node", "")}</div>',
             ]
             if item.get("profit_pool"):
@@ -890,7 +986,6 @@ def _chain_summary_to_html(chain_summary: list) -> str:
 
 def save_history(stock_code: str, snapshot: Dict[str, Any]):
     """P2-2: 将运行快照追加到历史记录 (data/history/<code>.jsonl)"""
-    import json, os
     history_dir = DATA_DIR / "history"
     history_dir.mkdir(parents=True, exist_ok=True)
     hist_file = history_dir / f"{stock_code}.jsonl"
@@ -911,8 +1006,8 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
 
     Args:
         stock_code: 股票代码
-        real_data: 可选，由调用方传入的实时数据 dict。若提供则直接使用，
-                   不再从本地 JSON 重新加载，确保 Signal 与 HTML 报告数据一致。
+            real_data: 可选，由调用方传入的实时数据 dict。若提供则直接使用，
+                       不再从本地 JSON 重新加载，确保 CLI 报告与分析数据一致。
         generate_html: 是否生成 HTML 报告文件。当作为 Agent Skill 被调用时
                        应设为 False，避免重复生成报告；独立 CLI 使用时保持 True。
     """
@@ -927,26 +1022,15 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
     else:
         logger.info("[Step 1] 使用调用方传入的实时数据，跳过本地 JSON 加载")
 
-    # Step 1.0: 数据缺失 — 优先自动抓取，再降级
-    if real_data is None:
-        #: 尝试自动抓取
-        try:
-            from scripts.auto_fetch import auto_fetch_and_save
-            fetched = auto_fetch_and_save(stock_code)
-            if fetched:
-                logger.info("[Step 1.0] 自动抓取成功, 重新加载数据")
-                real_data = load_real_data(stock_code)
-        except Exception as e:
-            logger.debug("自动抓取失败: %s, 进入框架降级", e)
-    
-    # Step 1.0b: 仍然缺失 → 框架降级
+    # Step 1.0: 数据缺失 → 框架降级。
+    # 真实数据抓取由 data_sources/ 层负责，Skill runtime 不直接联网或落盘。
     detected = None
     if real_data is None:
         # 先检测 preset
         preset_name = "generic"
         try:
             from core.auto_detect_preset import auto_detect_preset
-            detected = auto_detect_preset(stock_code, DATA_DIR)
+            detected = auto_detect_preset(stock_code, DATA_DIR, allow_provider_lookup=False)
             if detected:
                 preset_name = detected
         except Exception as e:
@@ -962,7 +1046,7 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
 
         # 生成降级 HTML（仅在独立 CLI 模式下生成）
         if generate_html:
-            html = generate_html_v45(
+            html = render_html_report(
                 stock_info=stock_info,
                 lifecycle=lifecycle,
                 inflection=inflection,
@@ -992,7 +1076,7 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
         if detected is None:
             try:
                 from core.auto_detect_preset import auto_detect_preset
-                detected = auto_detect_preset(stock_code, DATA_DIR)
+                detected = auto_detect_preset(stock_code, DATA_DIR, allow_provider_lookup=False)
             except Exception as e:
                 logger.debug("auto_detect_preset 失败: %s", e)
 
@@ -1016,10 +1100,10 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
     if not real_data:
         missing_count = 999
     else:
-        signals = real_data.get("real_signals", {})
+        signals = _build_system_a_signals(real_data)
         industry_data = real_data.get("industry_data", [])
         # 检查核心字段
-        core_fields = ["revenue_growth", "gross_margin", "order_backlog", "capacity_utilization", "price_yoy", "inventory_days"]
+        core_fields = ["revenue_growth", "order_backlog", "capacity_utilization", "price_yoy", "inventory_days", "capex_plan"]
         missing_count = sum(1 for f in core_fields if signals.get(f) is None)
         if not industry_data:
             missing_count += 3
@@ -1041,12 +1125,12 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
                 print(f"\n{'='*60}")
                 print(f"⚠️  数据缺失警告: {missing_count}项核心数据未填充")
                 print(f"{'='*60}")
-                print(f"已自动生成AI数据采集任务清单:")
+                print("已自动生成AI数据采集任务清单:")
                 print(f"  {task_path}")
-                print(f"\n对方AI执行流程:")
-                print(f"  1. 读取任务清单 → 按★必填优先搜索")
-                print(f"  2. 校验来源+日期 → 按field_path回填JSON")
-                print(f"  3. 缺失标注'数据缺失'，不编造")
+                print("\n对方AI执行流程:")
+                print("  1. 读取任务清单 → 按★必填优先搜索")
+                print("  2. 校验来源+日期 → 按field_path回填JSON")
+                print("  3. 缺失标注'数据缺失'，不编造")
                 print(f"  4. 数据填满后重新运行: python3 core/pipeline.py {stock_code}")
                 print(f"{'='*60}\n")
         except Exception as e:
@@ -1072,7 +1156,7 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
 
     # Step 7: 生成 HTML（仅在独立 CLI 模式下生成，Agent 集成模式跳过）
     if generate_html:
-        html = generate_html_v45(
+        html = render_html_report(
             stock_info=stock_info,
             lifecycle=lifecycle,
             inflection=inflection,
@@ -1085,7 +1169,7 @@ def run_pipeline(stock_code: str, real_data: Optional[Dict[str, Any]] = None, ge
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_code = re.sub(r"[^A-Za-z0-9]", "_", stock_code)
-        out_path = REPORTS_DIR / f"{safe_code}_v45_{timestamp}.html"
+        out_path = REPORTS_DIR / f"{safe_code}_industry_{timestamp}.html"
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
 

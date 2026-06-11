@@ -6,7 +6,7 @@ Industrial Sentinel — 数据验证器
     python scripts/validate_data.py <stock_code>
 
 功能:
-    验证 real_data.json 是否符合 标准格式，检查必填字段和数据质量。
+    验证 real_data.json 是否符合标准格式，检查必填字段和数据质量。
     输出验证报告：通过/警告/错误。
 """
 
@@ -43,14 +43,15 @@ class DataValidator:
     # 必填字段定义
     REQUIRED_TOP_KEYS = [
         "stock_code", "stock_name", "industry", "preset",
-        "chain_position", "data_source", "data_date",
-        "real_signals", "industry_data", "lifecycle_indicators",
+        "chain_position", "data_source",
+        "industry_signals", "industry_data", "lifecycle_indicators",
     ]
     
-    REQUIRED_SIGNAL_KEYS = [
-        "revenue_growth", "gross_margin", "order_backlog",
-        "capacity_utilization", "price_yoy", "inventory_days",
-        "capex_plan", "policy_count"
+    REQUIRED_INDUSTRY_SIGNAL_KEYS = [
+        "industry_market_growth", "industry_order_growth",
+        "industry_capacity_utilization", "industry_price_yoy",
+        "industry_inventory_days", "industry_capex_plan",
+        "industry_policy_count"
     ]
     
     REQUIRED_INDUSTRY_DATA_FIELDS = ["metric", "value", "source", "source_type"]
@@ -76,19 +77,24 @@ class DataValidator:
             if key not in self.data:
                 self.warnings.append(f"缺少字段: {key}（可降级输出）")
         
-        if "real_signals" in self.data:
-            signals = self.data["real_signals"]
-            for key in self.REQUIRED_SIGNAL_KEYS:
+        if "industry_signals" in self.data:
+            signals = self.data["industry_signals"]
+            for key in self.REQUIRED_INDUSTRY_SIGNAL_KEYS:
                 if key not in signals:
-                    self.warnings.append(f"real_signals 缺少字段: {key}（五态判定可能不完整）")
+                    self.warnings.append(f"industry_signals 缺少字段: {key}（五态判定可能不完整）")
+        elif "real_signals" in self.data:
+            self.warnings.append("使用旧 real_signals 结构；建议迁移到 industry_signals / peer_basket_signals / company_signals")
     
     def _validate_signals(self):
         """验证信号数据质量"""
-        signals = self.data.get("real_signals", {})
+        signals = self.data.get("industry_signals", {})
         
         # 检查数值字段 — 允许字符串"数据缺失"作为显式占位
-        numeric_keys = ["revenue_growth", "gross_margin", "order_backlog", 
-                       "capacity_utilization", "price_yoy", "inventory_days"]
+        numeric_keys = [
+            "industry_market_growth", "industry_order_growth",
+            "industry_capacity_utilization", "industry_price_yoy",
+            "industry_inventory_days",
+        ]
         for key in numeric_keys:
             val = signals.get(key)
             if val is None:
@@ -100,7 +106,7 @@ class DataValidator:
                 self.warnings.append(f"{key} 类型错误: {type(val).__name__}（应为数字或「数据缺失」）")
         
         # 检查来源标注
-        for key in self.REQUIRED_SIGNAL_KEYS:
+        for key in self.REQUIRED_INDUSTRY_SIGNAL_KEYS:
             source_key = f"{key}_source"
             if source_key not in signals:
                 self.warnings.append(f"缺少来源标注: {source_key}")
@@ -140,9 +146,9 @@ class DataValidator:
     
     def _validate_data_quality(self):
         """数据质量评估"""
-        signals = self.data.get("real_signals", {})
-        filled_count = sum(1 for k in self.REQUIRED_SIGNAL_KEYS if signals.get(k) is not None)
-        total_count = len(self.REQUIRED_SIGNAL_KEYS)
+        signals = self.data.get("industry_signals", {})
+        filled_count = sum(1 for k in self.REQUIRED_INDUSTRY_SIGNAL_KEYS if signals.get(k) is not None)
+        total_count = len(self.REQUIRED_INDUSTRY_SIGNAL_KEYS)
         
         self.info.append(f"信号填充率: {filled_count}/{total_count} ({filled_count/total_count*100:.0f}%)")
         
@@ -156,11 +162,11 @@ class DataValidator:
             self.errors.append("信号数据严重不足，无法进行五态判定")
         
         # 检查是否有明显的数据矛盾
-        rev_growth = _safe_num(signals.get("revenue_growth"))
-        gross_margin = _safe_num(signals.get("gross_margin"))
-        if rev_growth is not None and gross_margin is not None:
-            if rev_growth > 30 and gross_margin < 10:
-                self.warnings.append("营收高增(+30%+)但毛利率极低(<10%)，数据矛盾需核实")
+        industry_growth = _safe_num(signals.get("industry_market_growth"))
+        peer_margin = _safe_num(self.data.get("peer_basket_signals", {}).get("gross_margin_median"))
+        if industry_growth is not None and peer_margin is not None:
+            if industry_growth > 30 and peer_margin < 10:
+                self.warnings.append("行业需求高增(+30%+)但同业毛利率极低(<10%)，供需质量需核实")
 
 
 def print_report(code: str, passed: bool, errors: List[str], warnings: List[str], info: List[str]):

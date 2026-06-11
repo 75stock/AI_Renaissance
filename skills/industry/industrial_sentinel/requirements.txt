@@ -1,4 +1,4 @@
-# Industrial Sentinel V4.5
+# Industrial Sentinel
 # 核心框架零外部依赖（Python 3.9+ 标准库）
 # 以下为可选依赖：
 

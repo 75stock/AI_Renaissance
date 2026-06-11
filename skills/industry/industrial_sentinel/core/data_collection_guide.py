@@ -103,23 +103,23 @@ def infer_field_path(indicator_name: str, category: str) -> str:
     """
     name = indicator_name.strip()
     
-    # System A 五态信号
+    # System A 行业级信号
     signal_map = {
-        "营收": "real_signals.revenue_growth",
-        "收入": "real_signals.revenue_growth",
-        "毛利率": "real_signals.gross_margin",
-        "毛利": "real_signals.gross_margin",
-        "订单": "real_signals.order_backlog",
-        "backlog": "real_signals.order_backlog",
-        "产能": "real_signals.capacity_utilization",
-        "利用率": "real_signals.capacity_utilization",
-        "价格": "real_signals.price_yoy",
-        "库存": "real_signals.inventory_days",
-        "库存天数": "real_signals.inventory_days",
-        "资本开支": "real_signals.capex_plan",
-        "capex": "real_signals.capex_plan",
-        "政策": "real_signals.policy_count",
-        "亏损": "real_signals.net_loss_yoy_improvement",
+        "行业营收": "industry_signals.industry_market_growth",
+        "行业收入": "industry_signals.industry_market_growth",
+        "行业需求": "industry_signals.industry_demand_growth",
+        "同业毛利率": "peer_basket_signals.gross_margin_median",
+        "同业毛利": "peer_basket_signals.gross_margin_median",
+        "订单": "industry_signals.industry_order_growth",
+        "backlog": "industry_signals.industry_order_backlog",
+        "产能": "industry_signals.industry_capacity_utilization",
+        "利用率": "industry_signals.industry_capacity_utilization",
+        "价格": "industry_signals.industry_price_yoy",
+        "库存": "industry_signals.industry_inventory_days",
+        "库存天数": "industry_signals.industry_inventory_days",
+        "资本开支": "industry_signals.industry_capex_plan",
+        "capex": "industry_signals.industry_capex_plan",
+        "政策": "industry_signals.industry_policy_count",
     }
     
     for key, path in signal_map.items():
@@ -277,9 +277,9 @@ def _build_format_example(task: Dict[str, Any]) -> str:
     is_numeric = any(f in field_path for f in numeric_fields)
     
     if is_numeric:
-        return f"数值: 如 35.2 | source: 公司2026Q1财报 | date: 2026-04-28"
+        return f"数值: 如 35.2 | source: 行业报告/同业财报汇总 | date: 2026-04-28"
     else:
-        return f"文本: 如 '扩产中，预计Q3投产' | source: 公司公告 | date: 2026-03-15"
+        return f"文本: 如 '扩产中，预计Q3投产' | source: 行业报告/公司公告交叉验证 | date: 2026-03-15"
 
 
 def extract_chain_node_tasks(preset: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -379,11 +379,11 @@ def extract_lifecycle_tasks(preset: Dict[str, Any]) -> List[Dict[str, Any]]:
     industry = preset.get("industry_name", "")
     
     lifecycle_metrics = [
-        {"name": "行业营收增速", "field": "lifecycle_indicators.revenue_growth", "rule": ">50%导入期, 20-50%成长期, <20%成熟期"},
-        {"name": "毛利率修复趋势", "field": "lifecycle_indicators.gross_margin", "rule": "低/亏损→修复→稳定"},
-        {"name": "产能扩张状态", "field": "lifecycle_indicators.capacity_expansion", "rule": "爬坡中→扩产→饱和"},
-        {"name": "渗透率水平", "field": "lifecycle_indicators.penetration", "rule": "<15%导入期, 15-40%成长期, >60%成熟期"},
-        {"name": "行业竞争格局", "field": "lifecycle_indicators.competition", "rule": "分散→集中→稳定"},
+        {"name": "行业需求增速", "field": "industry_signals.industry_market_growth", "rule": ">50%导入期, 20-50%成长期, <20%成熟期"},
+        {"name": "同业毛利率修复趋势", "field": "peer_basket_signals.gross_margin_median", "rule": "低/亏损→修复→稳定"},
+        {"name": "产能扩张状态", "field": "industry_signals.industry_capex_plan", "rule": "爬坡中→扩产→饱和"},
+        {"name": "渗透率水平", "field": "industry_signals.industry_penetration_rate", "rule": "<15%导入期, 15-40%成长期, >60%成熟期"},
+        {"name": "行业竞争格局", "field": "industry_signals.industry_competition_score", "rule": "分散→集中→稳定"},
     ]
     
     for metric in lifecycle_metrics:
@@ -493,7 +493,6 @@ def generate_collection_guide(preset_name: str, stock_code: str = "", stock_name
     
     guide = {
         "meta": {
-            "version": "1.0",
             "preset": preset_name,
             "industry": industry,
             "stock_code": stock_code,
@@ -511,7 +510,7 @@ def generate_collection_guide(preset_name: str, stock_code: str = "", stock_name
                 "1. 按 required_level 排序：★必填 → ☆推荐 → ○可选，必填项优先搜",
                 "2. 对每个 task: 用 chinese_queries 搜索 → 选 source_priority 最高的结果",
                 "3. 把搜到的值按 format_example 格式，写入 target_file 中 field_path 指定的位置",
-                "4. field_path 用点号表示 JSON 嵌套路径，如 real_signals.revenue_growth 表示 {\"real_signals\": {\"revenue_growth\": ...}}",
+                "4. field_path 用点号表示 JSON 嵌套路径，如 industry_signals.industry_market_growth 表示 {\"industry_signals\": {\"industry_market_growth\": ...}}",
                 "5. 搜索失败时用 fallback_strategy 降级，绝不编造数字",
                 "6. 非数值字段（来源、备注）也必须填写 source 和 date",
                 "7. 完成后运行: python3 scripts/validate_data.py <代码> 再跑 ./run.sh <代码>",

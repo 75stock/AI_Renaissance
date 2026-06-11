@@ -1,13 +1,13 @@
 # 东方财富 Push2 API 字段映射参考
 
-> 用于在无财报文件时快速获取 A 股财务数据，填充 `_real_data.json`
+> 用于在无财报文件时快速获取 A 股财务数据。该数据只能进入 `company_signals` 或同业篮子汇总，不能由单家公司直接驱动 System A。
 
 ## 已验证字段
 
 | 字段 | 含义 | 示例值 | 用途 |
 |------|------|--------|------|
-| `f41` | 营收同比增速 (%) | 52.72 | `real_signals.revenue_growth` |
-| `f57` | 毛利率 (%) | 55.85 | `real_signals.gross_margin` |
+| `f41` | 营收同比增速 (%) | 52.72 | `company_signals.revenue_growth` 或同业汇总后的 `peer_basket_signals.revenue_growth_median` |
+| `f57` | 毛利率 (%) | 55.85 | `company_signals.gross_margin` 或同业汇总后的 `peer_basket_signals.gross_margin_median` |
 | `f9` | PE (TTM) | 85.39 | System B 估值参考 |
 | `f45` | 净利润同比 (%) | 注意基期效应可能导致极端值 | 参考，不直接填入 |
 | `f40` | 营业收入 (万元) | 季度或 TTM 口径 | 辅助验证 |

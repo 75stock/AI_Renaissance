@@ -69,7 +69,7 @@ def _lookup_code(code: str, mapping: dict) -> Optional[str]:
     return None
 
 # ═══════════════════════════════════════════════════════════════
-# 股票名称 → 代码映射（五层蛋糕 A 股核心标的）
+# 股票名称 → 代码映射（用于本地 preset 路由）
 # ═══════════════════════════════════════════════════════════════
 
 def _is_stock_code(s: str) -> bool:
@@ -130,19 +130,19 @@ def _resolve_input(stock_code: str) -> str:
     return _normalize_a_stock_code(s.upper())
 
 
-# 导入大规模名称映射（v2.0: 275+关键词覆盖6个preset）
+# 导入名称关键词 → preset 路由映射
 _spec = importlib.util.spec_from_file_location("name_preset_mapping", Path(__file__).parent / "name_preset_mapping.py")
 _name_preset_module = importlib.util.module_from_spec(_spec)
 sys.path.insert(0, str(Path(__file__).parent))
 _spec.loader.exec_module(_name_preset_module)
-NAME_TO_PRESET = _name_preset_module.NAME_TO_PRESET_V2
+NAME_TO_PRESET = _name_preset_module.NAME_TO_PRESET
 
 
 # ═══════════════════════════════════════════════════════════════
-# 第一层：内置映射表（覆盖常见标的）
+# 第一层：本地 preset 路由表（覆盖常见标的）
 # ═══════════════════════════════════════════════════════════════
 
-BUILT_IN_MAP = {
+LOCAL_PRESET_ROUTING_MAP = {
     # ── L2 芯片 (13) ──
     "688981.SH": "ai-chip",            # 中芯国际
     "688012.SH": "ai-chip",            # 中微公司
@@ -248,6 +248,19 @@ BUILT_IN_MAP = {
     "000700.SZ": "robotics",           # 模塑科技
 }
 
+SUPPORTED_PRESETS = set(LOCAL_PRESET_ROUTING_MAP.values()) | {
+    "ai-energy",
+    "ai-chip",
+    "semiconductor-equipment",
+    "storage",
+    "optical-module",
+    "ai-infrastructure",
+    "pcb",
+    "ai-model",
+    "robotics",
+    "generic",
+}
+
 # 行业关键词 → preset 映射
 INDUSTRY_KEYWORDS = {
     "optical-module": ["光通信", "光模块", "光器件", "光纤", "光缆", "光芯片", "磷化铟", "硅光", "CW光源", "EML", "DSP", "AWG", "光互联"],
@@ -279,17 +292,10 @@ def load_user_map(data_dir: Path) -> Dict[str, str]:
 # ═══════════════════════════════════════════════════════════════
 
 def query_akshare(stock_code: str) -> Optional[str]:
-    """尝试用 akshare 查询行业分类"""
+    """尝试用 data_sources 层的 AkShare 查询行业分类。"""
     try:
-        import akshare as ak
-        # 尝试获取股票基本信息
-        df = ak.stock_individual_info_em(symbol=stock_code.replace(".SH", "").replace(".SZ", "").replace(".HK", ""))
-        if df is not None and not df.empty:
-            # 查找行业相关字段
-            for col in df["item"]:
-                val = df[df["item"] == col]["value"].values[0] if col in df["item"].values else ""
-                if col in ["行业", "所属行业", "申万行业", "证监会行业", "所属概念"]:
-                    return str(val)
+        from data_sources.industry_preset_detection import query_akshare_industry
+        return query_akshare_industry(stock_code)
     except Exception as e:
         logger.debug("akshare 查询失败: %s", e)
     return None
@@ -300,29 +306,10 @@ def query_akshare(stock_code: str) -> Optional[str]:
 # ═══════════════════════════════════════════════════════════════
 
 def query_eastmoney(stock_code: str) -> Optional[str]:
-    """尝试通过东方财富API获取行业"""
-    import urllib.request
-        
-    # 确定 secid
-    if stock_code.endswith(".SH"):
-        secid = f"1.{stock_code.replace('.SH', '')}"
-    elif stock_code.endswith(".SZ"):
-        secid = f"0.{stock_code.replace('.SZ', '')}"
-    else:
-        return None
-    
-    url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f100,f102"
+    """尝试通过 data_sources 层的东方财富查询行业。"""
     try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data.get("data"):
-                # f100 通常是行业
-                industry = data["data"].get("f100", "")
-                if industry:
-                    return industry
+        from data_sources.industry_preset_detection import query_eastmoney_industry
+        return query_eastmoney_industry(stock_code)
     except Exception as e:
         logger.debug("东方财富API查询失败: %s", e)
     return None
@@ -333,28 +320,10 @@ def query_eastmoney(stock_code: str) -> Optional[str]:
 # ═══════════════════════════════════════════════════════════════
 
 def query_tencent_name(stock_code: str) -> Optional[str]:
-    """通过腾讯API获取股票名称"""
-    
-    prefix = "sh" if stock_code.endswith(".SH") else "sz"
-    code = stock_code.replace(".SH", "").replace(".SZ", "")
-    url = f"https://qt.gtimg.cn/q={prefix}{code}"
-    
+    """通过 data_sources 层的腾讯行情查询股票名称。"""
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            content = resp.read()
-            # 尝试多种编码
-            for enc in ["gb2312", "gbk", "utf-8"]:
-                try:
-                    text = content.decode(enc)
-                    # 解析格式: v_sh600519="1~贵州茅台~600519~...
-                    if "~" in text:
-                        parts = text.split("~")
-                        if len(parts) >= 3:
-                            return parts[1]  # 股票名称
-                    break
-                except UnicodeDecodeError:
-                    continue
+        from data_sources.industry_preset_detection import query_tencent_stock_name
+        return query_tencent_stock_name(stock_code)
     except Exception as e:
         logger.debug("腾讯API查询失败: %s", e)
     return None
@@ -383,14 +352,22 @@ def match_preset_by_industry(industry_name: str) -> Optional[str]:
 # 主入口：多轮查询
 # ═══════════════════════════════════════════════════════════════
 
-def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
+def auto_detect_preset(
+    stock_code: str,
+    data_dir: Path,
+    allow_provider_lookup: bool = False,
+) -> Optional[str]:
     """
     自动检测股票所属 preset。支持代码和名称。
 
-    查询顺序：名称直接匹配 → 名称→代码 → 内置映射 → 用户映射
-              → akshare → 东方财富 → 腾讯API
+    查询顺序：preset直传 → 名称/行业关键词 → 名称转代码 → 本地 preset 路由 → 用户映射。
+    allow_provider_lookup=True 时，才委托 data_sources/ 查询外部 provider。
     """
     data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
+    direct_preset = stock_code.strip().lower()
+    if direct_preset in SUPPORTED_PRESETS:
+        logger.info("[自动检测] 输入为 preset: %s", direct_preset)
+        return direct_preset
 
     # 轮0：名称识别（名称→preset 直接映射 + 名称→代码转换）
     if not _is_stock_code(stock_code):
@@ -398,6 +375,10 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
             if name_key in stock_code:
                 logger.info("[自动检测] 名称'%s' 匹配'%s' → %s", stock_code, name_key, preset)
                 return preset
+        preset = match_preset_by_industry(stock_code)
+        if preset:
+            logger.info("[自动检测] 行业关键词'%s' → %s", stock_code, preset)
+            return preset
         resolved = _resolve_input(stock_code)
         if resolved != _normalize_a_stock_code(stock_code.upper()):
             logger.info("[自动检测] 名称'%s' → %s", stock_code, resolved)
@@ -411,10 +392,10 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
     else:
         stock_code = _normalize_a_stock_code(stock_code.upper())
 
-    # 轮1：内置映射表（支持带后缀和纯数字两种格式）
-    preset = _lookup_code(stock_code, BUILT_IN_MAP)
+    # 轮1：本地 preset 路由表（支持带后缀和纯数字两种格式）
+    preset = _lookup_code(stock_code, LOCAL_PRESET_ROUTING_MAP)
     if preset:
-        logger.info("[自动检测] %s → %s (内置映射)", stock_code, preset)
+        logger.info("[自动检测] %s → %s (本地 preset 路由)", stock_code, preset)
         return preset
 
     # 轮1.5：用户自定义映射
@@ -423,6 +404,10 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
     if preset:
         logger.info("[自动检测] %s → %s (用户映射)", stock_code, preset)
         return preset
+
+    if not allow_provider_lookup:
+        logger.warning("[自动检测] %s 未命中本地映射，跳过 provider 查询", stock_code)
+        return None
 
     # 轮2：akshare
     industry = query_akshare(stock_code)
@@ -452,12 +437,20 @@ def auto_detect_preset(stock_code: str, data_dir: Path) -> Optional[str]:
     return None
 
 
-def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Optional[str], list[str]]:
+def auto_detect_preset_with_log(
+    stock_code: str,
+    data_dir: Path,
+    allow_provider_lookup: bool = False,
+) -> tuple[Optional[str], list[str]]:
     """
     自动检测，同时返回查询日志。支持名称输入。
     """
     data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
     logs = []
+    direct_preset = stock_code.strip().lower()
+    if direct_preset in SUPPORTED_PRESETS:
+        logs.append(f"输入为 preset: {direct_preset}")
+        return direct_preset, logs
 
     # 轮0：名称识别
     if not _is_stock_code(stock_code):
@@ -466,6 +459,10 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
             if name_key in stock_code:
                 logs.append(f"  ✅ 名称关键字'{name_key}'匹配 → {preset}")
                 return preset, logs
+        preset = match_preset_by_industry(stock_code)
+        if preset:
+            logs.append(f"  ✅ 行业关键词匹配 → {preset}")
+            return preset, logs
         resolved = _resolve_input(stock_code)
         if resolved != _normalize_a_stock_code(stock_code.upper()):
             logs.append(f"  ✅ 名称→代码: {resolved}")
@@ -479,16 +476,20 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
     else:
         stock_code = _normalize_a_stock_code(stock_code.upper())
 
-    # 轮1：内置映射
-    logs.append(f"轮1: 查内置映射表...")
-    preset = _lookup_code(stock_code, BUILT_IN_MAP)
+    # 轮1：本地 preset 路由表
+    logs.append("轮1: 查本地 preset 路由表...")
+    preset = _lookup_code(stock_code, LOCAL_PRESET_ROUTING_MAP)
     if preset:
         logs.append(f"  ✅ 命中: {stock_code} → {preset}")
         return preset, logs
-    logs.append(f"  ❌ 未命中")
+    logs.append("  ❌ 未命中")
+
+    if not allow_provider_lookup:
+        logs.append("跳过 provider 查询：Skill 默认不直接联网，请通过 data_sources 注入数据或补充映射。")
+        return None, logs
     
     # 轮2：akshare
-    logs.append(f"轮2: 查 akshare 申万行业...")
+    logs.append("轮2: 查 akshare 申万行业...")
     industry = query_akshare(stock_code)
     if industry:
         logs.append(f"  ✅ 查到行业: {industry}")
@@ -498,10 +499,10 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
             return preset, logs
         logs.append(f"  ⚠️ 行业'{industry}'未匹配到已知preset")
     else:
-        logs.append(f"  ❌ akshare 不可用或查询失败")
+        logs.append("  ❌ akshare 不可用或查询失败")
     
     # 轮3：东方财富
-    logs.append(f"轮3: 查东方财富API...")
+    logs.append("轮3: 查东方财富API...")
     industry = query_eastmoney(stock_code)
     if industry:
         logs.append(f"  ✅ 查到行业: {industry}")
@@ -511,10 +512,10 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
             return preset, logs
         logs.append(f"  ⚠️ 行业'{industry}'未匹配到已知preset")
     else:
-        logs.append(f"  ❌ 东方财富API查询失败")
+        logs.append("  ❌ 东方财富API查询失败")
     
     # 轮4：腾讯API
-    logs.append(f"轮4: 查腾讯API获取名称...")
+    logs.append("轮4: 查腾讯API获取名称...")
     name = query_tencent_name(stock_code)
     if name:
         logs.append(f"  ✅ 查到名称: {name}")
@@ -524,13 +525,13 @@ def auto_detect_preset_with_log(stock_code: str, data_dir: Path) -> tuple[Option
             return preset, logs
         logs.append(f"  ⚠️ 名称'{name}'未匹配到已知preset")
     else:
-        logs.append(f"  ❌ 腾讯API查询失败")
+        logs.append("  ❌ 腾讯API查询失败")
     
-    logs.append(f"\n❌ 所有查询轮次均失败，请手动指定 --preset <preset名称>")
-    logs.append(f"   可用preset (黄仁勋AI五层蛋糕): ")
-    logs.append(f"     L1能源: ai-energy | L2芯片: ai-chip, semiconductor-equipment, storage")
-    logs.append(f"     L3基础设施: optical-module, ai-infrastructure, pcb | L4模型: ai-model")
-    logs.append(f"     L5应用: robotics")
+    logs.append("\n❌ 所有查询轮次均失败，请手动指定 --preset <preset名称>")
+    logs.append("   可用preset (黄仁勋AI五层蛋糕): ")
+    logs.append("     L1能源: ai-energy | L2芯片: ai-chip, semiconductor-equipment, storage")
+    logs.append("     L3基础设施: optical-module, ai-infrastructure, pcb | L4模型: ai-model")
+    logs.append("     L5应用: robotics")
     return None, logs
 
 

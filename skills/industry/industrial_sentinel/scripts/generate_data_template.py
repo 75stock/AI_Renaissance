@@ -64,57 +64,77 @@ def generate_template(stock_code: str, stock_name: str, industry: str,
         "data_source": "待补充 — 请通过搜索工具（web_search/kimi_search等）搜索财报和行业研报",
         "generated_at": now,
         
-        # [必填★] System A 五态判定信号 — 至少填3项
-        "real_signals": {
-            "revenue_growth": None,           # [必填★] 营收同比% — 财报
-            "revenue_growth_source": "待搜索 — Q1 2026 vs Q1 2025 营收同比（财报）",
-            "gross_margin": None,             # [必填★] 毛利率% — 财报
-            "gross_margin_source": "待搜索 — 最新季度毛利率（财报）",
-            "order_backlog": None,            # [推荐☆] 订单backlog或pipeline — 业绩会/公告
-            "order_backlog_source": "待搜索 — 订单backlog或pipeline（财报/业绩会）",
-            "capacity_utilization": None,     # [推荐☆] 产能利用率 — 调研/新闻
-            "capacity_utilization_source": "待搜索 — 产能利用率或扩产状态（财报/调研）",
-            "price_yoy": None,                # [推荐☆] 产品价格同比变化 — 行业新闻/研报
-            "price_yoy_source": "待搜索 — 产品价格同比变化（行业新闻/研报）",
-            "inventory_days": None,           # [可选] 库存天数 — 财报
-            "inventory_days_source": "待搜索 — 库存天数（财报）",
-            "capex_plan": None,               # [推荐☆] 扩产计划 — 财报/新闻
-            "capex_plan_source": "待搜索 — 扩产计划/资本开支（财报/新闻）",
-            "policy_count": 0,                # [可选] 政策数量 — 部委文件/新闻
-            "policy_count_source": "待搜索 — 相关政策数量（部委文件/新闻）",
-            "net_loss_yoy_improvement": None,  # [可选] 亏损收窄幅度 — 财报
-            "net_loss_yoy_improvement_source": "待搜索 — 亏损收窄幅度（财报）"
+        # [必填★] System A 行业级信号 — 至少填3项
+        "industry_signals": {
+            "industry_market_growth": None,
+            "industry_market_growth_source": "待搜索 — 行业市场规模/需求增速（行业研报/协会/咨询机构）",
+            "industry_order_growth": None,
+            "industry_order_growth_source": "待搜索 — 行业订单/排产/backlog（行业调研/产业新闻）",
+            "industry_capacity_utilization": None,
+            "industry_capacity_utilization_source": "待搜索 — 行业产能利用率或开工率（行业调研/研报）",
+            "industry_price_yoy": None,
+            "industry_price_yoy_source": "待搜索 — 产品价格同比变化（行业新闻/研报）",
+            "industry_inventory_days": None,
+            "industry_inventory_days_source": "待搜索 — 行业库存或渠道库存天数（行业跟踪）",
+            "industry_capex_plan": None,
+            "industry_capex_plan_source": "待搜索 — 行业扩产计划/资本开支周期（公告/研报）",
+            "industry_policy_count": 0,
+            "industry_policy_count_source": "待搜索 — 相关政策数量（部委文件/新闻）",
+            "industry_penetration_rate": None,
+            "industry_penetration_rate_source": "待搜索 — 技术/产品渗透率（行业白皮书/咨询机构）"
+        },
+
+        # [推荐☆] 同业篮子验证 — 多家公司财报中位数/一致趋势
+        "peer_basket_signals": {
+            "revenue_growth_median": None,
+            "revenue_growth_median_source": "待搜索 — 同行业3-5家公司营收增速中位数",
+            "gross_margin_median": None,
+            "gross_margin_median_source": "待搜索 — 同行业3-5家公司毛利率中位数",
+            "inventory_days_median": None,
+            "inventory_days_median_source": "待搜索 — 同行业库存天数中位数",
+            "capex_trend": None,
+            "capex_trend_source": "待搜索 — 同行业资本开支/扩产趋势"
+        },
+
+        # [推荐☆] System B 个股信号 — 不直接参与 System A 行业判断
+        "company_signals": {
+            "revenue_growth": None,
+            "revenue_growth_source": "待搜索 — 公司营收同比（财报）",
+            "gross_margin": None,
+            "gross_margin_source": "待搜索 — 公司毛利率（财报）",
+            "rd_ratio": None,
+            "rd_ratio_source": "待搜索 — 研发费用率（财报）"
         },
         
         # [必填★] 行业数据表格 — 至少5项（推荐8项）
         "industry_data": [
             {
-                "metric": "Q1 2026 Revenue",    # [必填★]
+                "metric": "行业需求增速",        # [必填★]
                 "value": "待补充",
                 "yoy_change": "待补充",
-                "source": "公司财报",
+                "source": "行业研报",
+                "source_url": "",
+                "source_type": "研报",
+                "date": "",
+                "analysis": ""
+            },
+            {
+                "metric": "同业毛利率中位数",   # [推荐☆]
+                "value": "待补充",
+                "yoy_change": "待补充",
+                "source": "同业财报汇总",
                 "source_url": "",
                 "source_type": "财报",
                 "date": "",
                 "analysis": ""
             },
             {
-                "metric": "Gross Margin",       # [必填★]
-                "value": "待补充",
-                "yoy_change": "待补充",
-                "source": "公司财报",
-                "source_url": "",
-                "source_type": "财报",
-                "date": "",
-                "analysis": ""
-            },
-            {
-                "metric": "Order Backlog",      # [推荐☆]
+                "metric": "行业订单/排产",      # [推荐☆]
                 "value": "待补充",
                 "yoy_change": "",
-                "source": "业绩会/公告",
+                "source": "行业调研/产业新闻",
                 "source_url": "",
-                "source_type": "财报",
+                "source_type": "研报",
                 "date": "",
                 "analysis": ""
             },
@@ -172,10 +192,10 @@ def generate_template(stock_code: str, stock_name: str, industry: str,
         
         # [必填★] 生命周期判定指标 — 至少填3项
         "lifecycle_indicators": [
-            {"label": "营收增速", "value": "待补充", "trend": "—", "source": "财报"},
-            {"label": "毛利率修复", "value": "待补充", "trend": "—", "source": "财报"},
-            {"label": "订单backlog", "value": "待补充", "trend": "—", "source": "财报"},
-            {"label": "产能扩张", "value": "待补充", "trend": "—", "source": "新闻"},
+            {"label": "行业需求增速", "value": "待补充", "trend": "—", "source": "行业研报"},
+            {"label": "同业毛利率修复", "value": "待补充", "trend": "—", "source": "同业财报汇总"},
+            {"label": "行业订单/排产", "value": "待补充", "trend": "—", "source": "行业调研"},
+            {"label": "行业产能扩张", "value": "待补充", "trend": "—", "source": "新闻/公告"},
             {"label": "行业周期", "value": "待补充", "trend": "—", "source": "研报"}
         ],
         
@@ -225,15 +245,15 @@ def print_search_guide(stock_code: str, stock_name: str):
     print("""
 请使用任意搜索工具（web_search/kimi_search/serpapi等）搜索以下数据，填入生成的JSON模板：
 
-【财报数据】
-1. "{stock_code} Q1 2026 财报 营收 毛利率"
-2. "{stock_code} 2026年 一季度 业绩" 
-3. "{stock_name} earnings Q1 2026 revenue gross margin"
+	【行业级数据】
+	1. "{industry} 行业 2026 市场规模 增长率"
+	2. "{industry} 产业链 供需缺口 产能利用率"
+	3. "{industry} 价格趋势 订单 backlog"
 
-【行业数据】
-4. "{industry} 行业 2026 市场规模 增长率"
-5. "{industry} 产业链 供需缺口 产能利用率"
-6. "{industry} 价格趋势 订单 backlog"
+	【同业篮子验证】
+	4. "{industry} 上市公司 营收增速 毛利率 中位数"
+	5. "{industry} 龙头 二线 公司 财报 毛利率 库存"
+	6. "{industry} 同业 资本开支 扩产 趋势"
 
 【政策/新闻】
 7. "{industry} 政策 2026 补贴 准入"

@@ -52,6 +52,12 @@ data_sources/data/
 *.csv
 *.xlsx
 
+# Industry skill generated artifacts
+skills/industry/industrial_sentinel/reports/*.html
+skills/industry/industrial_sentinel/data/*_real_data.json
+skills/industry/industrial_sentinel/data/*_collection_tasks.json
+skills/industry/industrial_sentinel/data/*_cache.json
+
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb

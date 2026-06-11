@@ -111,7 +111,7 @@ preset_indicators:
   mid_axis:
     - indicator: 评测基准得分
       unit: '%'
-      trigger: 连续两个版本提升≥3pp
+      trigger: 连续两次模型迭代提升≥3pp
       current: "MMLU 85-89%"
       source: "公开评测"
     - indicator: API调用价格

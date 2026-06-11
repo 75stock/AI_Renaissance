@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-System B — 微观层个股选择与自适应权重引擎 (V4.5)
+System B — 微观层个股选择与自适应权重引擎
 
 包含：
 - 个股类型识别（成长/周期/价值/主题/混合）
 - 自适应四维权重计算
 - System B 加权评分
 
-V4.5 变更：删除交易计划生成模块，仅保留类型判定输出
+仅保留类型判定输出，不生成交易计划。
 """
 
 import logging
@@ -201,11 +201,11 @@ def identify_stock_type(
         return "value"
 
     # ── 5. 默认混合型 ──
-    logger.info(f"[类型识别] 判定为混合型(mixed): 指标特征不明确，各维度矛盾或均不突出")
+    logger.info("[类型识别] 判定为混合型(mixed): 指标特征不明确，各维度矛盾或均不突出")
     return "mixed"
 
 
-def identify_stock_type_v2(
+def identify_stock_type_with_position(
     industry: str,
     revenue_growth: float,
     rd_ratio: float,
@@ -216,7 +216,7 @@ def identify_stock_type_v2(
     segment_data: list = None,
     industry_data: list = None,
 ) -> str:
-    """V4.6 优化5: System B V2 — 增加行业地位维度。
+    """System B 类型识别 — 增加行业地位维度。
 
     新增判定:
       - 技术驱动型(tech_driven): 市占率≥20% + 高研发
@@ -348,7 +348,7 @@ def get_adaptive_weights(
 # ═══════════════════════════════════════════════════════════════
 
 
-# V4.5 helper for safe nested dict access
+# Helper for safe nested dict access
 
 def get_stock_type_description(stock_type: str) -> Dict[str, str]:
     """
@@ -532,7 +532,7 @@ if __name__ == '__main__':
         print(f"  {match} {industry:12s} rev={rev:5.1f}% rd={rd:4.1f}% "
               f"asset={asset:.2f} profit={profit:.2f} → {actual:8s} (期望: {expected})")
 
-    # 6.4 类型判定输出验证（V4.5: 仅保留类型判定，无评分/交易计划）
+    # 6.4 类型判定输出验证（仅保留类型判定，无评分/交易计划）
     print('\n\n【6.4】System B 类型判定输出验证')
     demo_industry = "光通信"
     demo_rev, demo_rd, demo_asset, demo_profit = 28.0, 12.0, 0.70, 0.50
@@ -542,5 +542,5 @@ if __name__ == '__main__':
     print(f"  ✅ 特征标签: {desc.get('key_features', desc.get('key_metric', ''))}")
 
     print('\n' + '=' * 70)
-    print('✅ System B 全模块自测通过 (V4.5 — 类型判定已验证)')
+    print('✅ System B 全模块自测通过（类型判定已验证）')
     print('=' * 70)

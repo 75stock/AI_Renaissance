@@ -21,9 +21,11 @@ import json
 import sys
 import argparse
 from pathlib import Path
-from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).parent.parent.resolve()
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 DATA_DIR = SCRIPT_DIR / "data"
 MAPPING_FILE = DATA_DIR / "mappings" / "stock-to-preset.json"
 
@@ -96,27 +98,25 @@ def match_preset_by_industry_name(industry_name: str) -> str | None:
 
 
 def generate_via_akshare():
-    """用akshare生成全量映射表"""
+    """通过 data_sources 层生成全量映射表"""
     try:
-        import akshare as ak
+        from data_sources.industry_preset_detection import query_all_a_stock_industries
     except ImportError:
-        print("❌ akshare 未安装，请先: pip install akshare")
-        print("   或使用: python scripts/generate_mapping.py --stock 002922 --search")
+        print("❌ 无法导入 data_sources.industry_preset_detection")
         sys.exit(1)
 
-    print("🔄 正在用akshare获取全量A股行业数据...")
-
-    # 获取全量股票列表
-    stock_df = ak.stock_info_a_code_name()
-    total = len(stock_df)
+    print("🔄 正在通过 data_sources 获取全量A股行业数据...")
+    stock_rows = query_all_a_stock_industries()
+    total = len(stock_rows)
     print(f"   共 {total} 只股票")
 
     mapping = {}
     not_matched = []
 
-    for idx, row in stock_df.iterrows():
+    for idx, row in enumerate(stock_rows):
         code = row["code"]
         name = row["name"]
+        industry = row.get("industry", "")
 
         # 标准化代码
         if code.startswith(("6", "68")):
@@ -126,25 +126,13 @@ def generate_via_akshare():
         else:
             std_code = code
 
-        try:
-            # 获取个股信息
-            df = ak.stock_individual_info_em(symbol=code)
-            if df is not None and not df.empty:
-                industry = ""
-                for _, row2 in df.iterrows():
-                    if row2["item"] in ["行业", "所属行业", "申万行业", "证监会行业"]:
-                        industry = str(row2["value"])
-                        break
-
-                if industry:
-                    preset = match_preset_by_industry_name(industry)
-                    if preset:
-                        mapping[std_code] = preset
-                        mapping[name] = preset
-                    else:
-                        not_matched.append((std_code, name, industry))
-        except Exception:
-            pass
+        if industry:
+            preset = match_preset_by_industry_name(industry)
+            if preset:
+                mapping[std_code] = preset
+                mapping[name] = preset
+            else:
+                not_matched.append((std_code, name, industry))
 
         if (idx + 1) % 500 == 0:
             print(f"   进度: {idx + 1}/{total}...")
@@ -171,8 +159,9 @@ def generate_via_akshare():
 def search_single_stock(stock_code: str) -> str | None:
     """用web_search搜索单只股票的行业分类"""
     # 尝试用已有数据源
-    sys.path.insert(0, str(SCRIPT_DIR / "core"))
-    from auto_detect_preset import auto_detect_preset_with_log
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    from core.auto_detect_preset import auto_detect_preset_with_log
 
     preset, logs = auto_detect_preset_with_log(stock_code, DATA_DIR)
     if preset:
@@ -214,16 +203,16 @@ def main():
             codes = [k for k in mapping.keys() if ".SH" in k or ".SZ" in k]
             print(f"📊 当前映射表: {len(codes)} 只股票")
             print(f"   文件: {MAPPING_FILE}")
-            print(f"\n💡 建议: 运行以下命令生成全量映射")
-            print(f"   python scripts/generate_mapping.py --akshare")
+            print("\n💡 建议: 运行以下命令生成全量映射")
+            print("   python scripts/generate_mapping.py --akshare")
         else:
             print("📊 当前映射表不存在")
-            print(f"\n💡 建议:")
-            print(f"   1. 安装akshare后生成全量映射:")
-            print(f"      pip install akshare")
-            print(f"      python scripts/generate_mapping.py --akshare")
-            print(f"   2. 或查询单只股票:")
-            print(f"      python scripts/generate_mapping.py --stock 002922")
+            print("\n💡 建议:")
+            print("   1. 安装akshare后生成全量映射:")
+            print("      pip install akshare")
+            print("      python scripts/generate_mapping.py --akshare")
+            print("   2. 或查询单只股票:")
+            print("      python scripts/generate_mapping.py --stock 002922")
 
 
 if __name__ == "__main__":

@@ -60,7 +60,6 @@ def test_signal_from_dict_bullish():
                 "fundamental": 0.35, "valuation": 0.20,
                 "technical": 0.25, "sentiment": 0.20
             },
-            "html_report": "/tmp/test.html",
         },
     }
     signal = Signal.from_dict(result)
@@ -71,6 +70,7 @@ def test_signal_from_dict_bullish():
     assert signal.weight == 0.65
     assert signal.meta["stock_type"] == "cyclical"
     assert signal.meta["adaptive_weights"]["fundamental"] == 0.35
+    assert "html_report" not in signal.meta
 
 
 def test_signal_from_dict_neutral():
@@ -144,7 +144,6 @@ class TestIndustryAgent:
             "signals": ["营收增速 35.0% >= 20% 加速", "产能利用率 88.0% >= 85% 紧张"],
             "weight": 0.65,
             "meta": {
-                "html_report": "/tmp/688313_report.html",
                 "stock_name": "仕佳光子",
                 "stock_code": "688313.SH",
                 "industry": "光通信",
@@ -168,7 +167,6 @@ class TestIndustryAgent:
             "signals": [],
             "weight": 0.1,
             "meta": {
-                "html_report": "",
                 "stock_name": "芯原股份",
                 "stock_code": "688521.SH",
                 "industry": "芯片设计",
@@ -196,6 +194,7 @@ class TestIndustryAgent:
         assert len(signal.signals) == 2
         assert signal.meta["stock_type"] == "growth"
         assert signal.meta["preset"] == "optical-module"
+        assert "html_report" not in signal.meta
         # adaptive_weights 应透传
         assert signal.meta["adaptive_weights"]["fundamental"] == 0.30
         assert signal.weight == 0.65
@@ -213,6 +212,25 @@ class TestIndustryAgent:
         assert signal.confidence == 0.15
         assert signal.signal_type == "industry"
         assert signal.meta["data_quality"] == "incomplete"
+        assert "html_report" not in signal.meta
+
+    def test_analyze_strips_html_report_from_runtime_meta(self, mock_runtime_success):
+        """项目级 IndustryAgent 不向 Orchestrator 暴露 HTML 报告路径"""
+        from agents.industry.agent import IndustryAgent
+
+        result = dict(mock_runtime_success)
+        result["meta"] = dict(mock_runtime_success["meta"])
+        result["meta"]["html_report"] = "/tmp/debug_report.html"
+        result["meta"]["html_path"] = "/tmp/debug_report.html"
+
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=result):
+            agent = IndustryAgent()
+            signal = agent.analyze("688313.SH")
+
+        assert signal.direction == "bullish"
+        assert "html_report" not in signal.meta
+        assert "html_path" not in signal.meta
 
     def test_analyze_runtime_exception(self):
         """runtime 抛出异常：应返回降级 neutral Signal"""
@@ -260,6 +278,28 @@ class TestIndustryAgent:
 
         assert signal.direction == "neutral"
 
+    def test_analyze_invalid_runtime_signal_returns_neutral(self):
+        """runtime 返回非法 Signal 字段时不应穿透主流程"""
+        from agents.industry.agent import IndustryAgent
+
+        invalid = {
+            "direction": "not-a-direction",
+            "confidence": "bad-confidence",
+            "reasoning": "invalid payload",
+            "signals": [],
+            "weight": 0.0,
+            "meta": {},
+        }
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=invalid):
+            agent = IndustryAgent()
+            signal = agent.analyze("000000.SZ")
+
+        assert signal.direction == "neutral"
+        assert signal.confidence == 0.1
+        assert signal.meta["needs_human_review"] is True
+        assert "bad-confidence" in signal.meta["error"]
+
     def test_stock_code_passthrough(self, mock_runtime_success):
         """stock_code 未设置时 agent 应补上"""
         from agents.industry.agent import IndustryAgent
@@ -276,17 +316,142 @@ class TestIndustryAgent:
         # agent 应补上 stock_code
         assert signal.stock_code == "002916.SZ"
 
-    def test_config_passed_to_runtime(self, mock_runtime_success):
-        """config 应传递给 runtime"""
+    def test_config_and_data_passed_to_runtime(self, mock_runtime_success):
+        """config 和 data_sources 数据应传递给 runtime"""
         from agents.industry.agent import IndustryAgent
 
         config = {"verbose": True, "data_dir": "/custom/path"}
+        source_data = {
+            "industry_result": {
+                "status": "success",
+                "industry_name": "PCB",
+                "score": 62,
+                "stage": {"name": "行业偏热", "direction": "bearish"},
+                "direction": "bearish",
+                "confidence": 0.55,
+                "special_signals": ["行业偏热"],
+            },
+            "financial_data": {
+                "balance": {"data": [{"TOTAL_ASSETS": 100, "FIXED_ASSET": 20}]},
+                "income": {"data": [{"OPERATE_INCOME": 50, "OPERATE_COST": 30}]},
+                "cashflow": {},
+            },
+            "industry_from_cache": False,
+            "financial_from_cache": False,
+            "degradation_reasons": [],
+        }
+        mock_data_source = MagicMock()
+        mock_data_source.get_data.return_value = source_data
         with patch("agents.industry.agent.run_industrial_sentinel",
-                   return_value=mock_runtime_success) as mock_run:
+                   return_value=mock_runtime_success) as mock_run, \
+             patch("agents.industry.agent.IndustrialSentinelDataSource",
+                   return_value=mock_data_source):
             agent = IndustryAgent(config=config)
             agent.analyze("002916.SZ")
 
-        mock_run.assert_called_once_with("002916.SZ", config)
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        assert args == ("002916.SZ",)
+        assert kwargs["industry_result"] == source_data["industry_result"]
+        assert kwargs["financial_data"] == source_data["financial_data"]
+        assert kwargs["config"]["verbose"] is True
+        assert kwargs["config"]["data_dir"] == "/custom/path"
+        assert kwargs["config"]["_input_context"]["input_type"] == "stock_code"
+
+    def test_config_injected_data_source_is_used(self, mock_runtime_success):
+        """IndustryAgent 应支持像其他专家组一样通过 config 注入数据源"""
+        from agents.industry.agent import IndustryAgent
+
+        source_data = {
+            "industry_result": None,
+            "financial_data": None,
+            "industry_from_cache": False,
+            "financial_from_cache": False,
+            "degradation_reasons": ["offline test"],
+        }
+        injected_source = MagicMock()
+        injected_source.get_data.return_value = source_data
+
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=mock_runtime_success) as mock_run, \
+             patch("agents.industry.agent.IndustrialSentinelDataSource") as constructor:
+            agent = IndustryAgent(config={"industrial_sentinel_data_source": injected_source})
+            signal = agent.analyze("002916.SZ")
+
+        constructor.assert_not_called()
+        injected_source.get_data.assert_called_once_with("002916.SZ")
+        mock_run.assert_called_once()
+        _, kwargs = mock_run.call_args
+        assert kwargs["industry_result"] is None
+        assert kwargs["financial_data"] is None
+        assert kwargs["config"]["_degradation_reasons"] == ["offline test"]
+        assert signal.signal_type == "industry"
+
+    def test_stock_name_input_routes_to_stock_code(self, mock_runtime_success):
+        """股票名称输入应先归一化为股票代码，再调用项目数据源"""
+        from agents.industry.agent import IndustryAgent
+
+        source_data = {
+            "industry_result": None,
+            "financial_data": None,
+            "industry_from_cache": False,
+            "financial_from_cache": False,
+            "degradation_reasons": [],
+        }
+        injected_source = MagicMock()
+        injected_source.get_data.return_value = source_data
+
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=mock_runtime_success) as mock_run:
+            agent = IndustryAgent(config={"industrial_sentinel_data_source": injected_source})
+            signal = agent.analyze("模塑科技")
+
+        injected_source.get_data.assert_called_once_with("000700.SZ")
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        assert args == ("000700.SZ",)
+        assert kwargs["config"]["_input_context"]["input_type"] == "stock_name"
+        assert kwargs["config"]["_input_context"]["preset"] == "robotics"
+        assert signal.meta["input_context"]["analysis_input"] == "000700.SZ"
+
+    def test_industry_input_uses_preset_without_stock_data_source(self, mock_runtime_neutral):
+        """行业词输入只选择 preset 框架，不把行业词传给个股数据源"""
+        from agents.industry.agent import IndustryAgent
+
+        injected_source = MagicMock()
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=mock_runtime_neutral) as mock_run:
+            agent = IndustryAgent(config={"industrial_sentinel_data_source": injected_source})
+            signal = agent.analyze("机器人")
+
+        injected_source.get_data.assert_not_called()
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        assert args == ("机器人",)
+        assert kwargs["industry_result"]["preset"] == "robotics"
+        assert kwargs["financial_data"] is None
+        assert kwargs["config"]["_input_context"]["input_type"] == "industry"
+        assert "industry_or_preset_input_without_stock_financial_data" in (
+            kwargs["config"]["_degradation_reasons"]
+        )
+        assert signal.meta["input_context"]["preset"] == "robotics"
+
+    def test_direct_preset_input_uses_framework_only(self, mock_runtime_neutral):
+        """直接输入 preset 时应跳过个股数据源，仅进入对应分析框架"""
+        from agents.industry.agent import IndustryAgent
+
+        injected_source = MagicMock()
+        with patch("agents.industry.agent.run_industrial_sentinel",
+                   return_value=mock_runtime_neutral) as mock_run:
+            agent = IndustryAgent(config={"industrial_sentinel_data_source": injected_source})
+            signal = agent.analyze("optical-module")
+
+        injected_source.get_data.assert_not_called()
+        args, kwargs = mock_run.call_args
+        assert args == ("optical-module",)
+        assert kwargs["industry_result"]["preset"] == "optical-module"
+        assert kwargs["config"]["_input_context"]["input_type"] == "preset"
+        assert signal.meta["input_context"]["preset"] == "optical-module"
 
 
 # ═══════════════════════════════════════════════════
@@ -330,6 +495,198 @@ def test_signal_to_dict_roundtrip():
     assert restored.signal_type == original.signal_type
     assert restored.weight == original.weight
     assert restored.meta == original.meta
+
+
+def test_runtime_maps_industry_sentiment_source_fields():
+    """runtime 应兼容 IndustrySentimentDataSource 的字段命名"""
+    from skills.industry.industrial_sentinel.runtime import _build_real_data
+
+    real_data = _build_real_data(
+        "002916.SZ",
+        industry_result={
+            "status": "success",
+            "industry_name": "PCB",
+            "preset": "pcb",
+            "score": 62.5,
+            "stage": {"name": "行业偏热", "direction": "bearish"},
+            "direction": "bearish",
+            "confidence": 0.55,
+            "special_signals": ["行业偏热"],
+        },
+        financial_data=None,
+    )
+
+    assert real_data["industry"] == "PCB"
+    assert real_data["industry_sentiment"] == "行业偏热"
+    assert real_data["industry_sentiment_score"] == 62.5
+    assert real_data["industry_sentiment_direction"] == "bearish"
+    assert real_data["industry_sentiment_confidence"] == 0.55
+    assert real_data["preset"] == "pcb"
+    assert real_data["industry_signals"]["qualitative_signals"] == ["行业偏热"]
+    assert real_data["industry_signals"]["industry_lifecycle_stage"] == "行业偏热"
+    assert real_data["_missing_count"] == 1
+
+
+def test_runtime_agent_mode_does_not_return_html_report():
+    """runtime 作为 Agent 接入口时只返回结构化 Signal 字段，不返回 HTML 路径"""
+    from skills.industry.industrial_sentinel.runtime import run_industrial_sentinel
+
+    result = run_industrial_sentinel(
+        "002916.SZ",
+        industry_result={
+            "status": "success",
+            "industry_name": "PCB",
+            "signals": {
+                "industry_market_growth": 28.0,
+                "industry_order_growth": 18.0,
+                "industry_capacity_utilization": 88.0,
+                "industry_price_yoy": 6.0,
+                "industry_capex_plan": "underway",
+            },
+        },
+        financial_data=None,
+        config={},
+    )
+
+    assert result["signal_type"] == "industry"
+    assert "html_report" not in result.get("meta", {})
+    assert "html_path" not in result.get("meta", {})
+
+
+def test_runtime_caps_preset_only_confidence():
+    """只命中 preset、缺少真实数据时不应输出高置信度结论"""
+    from skills.industry.industrial_sentinel.runtime import run_industrial_sentinel
+
+    result = run_industrial_sentinel(
+        "机器人",
+        industry_result={
+            "status": "preset_only",
+            "industry_name": "机器人",
+            "preset": "robotics",
+            "signals": {},
+            "confidence": 0.0,
+        },
+        financial_data=None,
+        config={
+            "_degradation_reasons": [
+                "industry_or_preset_input_without_stock_financial_data"
+            ]
+        },
+    )
+
+    assert result["direction"] == "neutral"
+    assert result["confidence"] <= 0.35
+    assert result["weight"] <= 0.2
+    assert result["meta"]["needs_data"] is True
+    assert result["meta"]["data_quality"] == "missing"
+
+
+def test_system_a_prefers_industry_signals_over_company_real_signals():
+    """System A 应优先使用行业级信号，避免单家公司财报污染行业判断"""
+    from skills.industry.industrial_sentinel.core.pipeline import _build_system_a_signals
+
+    real_data = {
+        "industry_signals": {
+            "industry_market_growth": 28.0,
+            "industry_order_growth": 18.0,
+            "industry_capacity_utilization": 86.0,
+        },
+        "peer_basket_signals": {
+            "gross_margin_median": 24.0,
+        },
+        "real_signals": {
+            "revenue_growth": -10.0,
+            "gross_margin": 8.0,
+        },
+    }
+
+    signals = _build_system_a_signals(real_data)
+
+    assert signals["revenue_growth"] == 28.0
+    assert signals["gross_margin"] == 24.0
+    assert signals["order_backlog"] == 18.0
+    assert signals["_signal_scope"]["revenue_growth"] == "industry"
+    assert signals["_signal_scope"]["gross_margin"] == "peer_basket"
+
+
+def test_industrial_sentinel_rejects_empty_financial_payload():
+    """空三张表不应被视为财务数据获取成功"""
+    from data_sources.industrial_sentinel import IndustrialSentinelDataSource
+
+    data_source = IndustrialSentinelDataSource.__new__(IndustrialSentinelDataSource)
+
+    assert not data_source._has_financial_payload(
+        {"balance": {}, "income": {}, "cashflow": {}}
+    )
+    assert data_source._has_financial_payload(
+        {"balance": {"data": [{"TOTAL_ASSETS": 100}]}, "income": {}, "cashflow": {}}
+    )
+
+
+def test_industrial_sentinel_accepts_injected_sources(tmp_path):
+    """复合数据源应允许注入底层行业/财务源，统一由 data_sources 层编排"""
+    from data_sources.industrial_sentinel import IndustrialSentinelDataSource
+
+    industry_source = MagicMock()
+    industry_source.get_industry_sentiment.return_value = {
+        "status": "success",
+        "industry_name": "PCB",
+        "score": 60,
+    }
+    financial_source = MagicMock()
+    financial_source.get_financial_data.return_value = {
+        "balance": {"data": [{"TOTAL_ASSETS": 100}]},
+        "income": {},
+        "cashflow": {},
+    }
+
+    data_source = IndustrialSentinelDataSource(
+        industry_data_source=industry_source,
+        financial_data_source=financial_source,
+        cache_dir=tmp_path,
+    )
+
+    data = data_source.get_data("002916.SZ")
+
+    industry_source.get_industry_sentiment.assert_called_once_with("002916.SZ")
+    financial_source.get_financial_data.assert_called_once_with("002916")
+    assert data["industry_result"]["industry_name"] == "PCB"
+    assert data["financial_data"]["balance"]["data"][0]["TOTAL_ASSETS"] == 100
+    assert data["industry_from_cache"] is False
+    assert data["financial_from_cache"] is False
+
+
+def test_industrial_sentinel_uses_local_preset_fallback_when_offline(tmp_path):
+    """实时和缓存都失败时，data_sources 层应返回框架级 preset fallback"""
+    from data_sources.industrial_sentinel import IndustrialSentinelDataSource
+
+    industry_source = MagicMock()
+    industry_source.get_industry_sentiment.return_value = {
+        "status": "error",
+        "reason": "offline",
+    }
+    financial_source = MagicMock()
+    financial_source.get_financial_data.return_value = {
+        "balance": {},
+        "income": {},
+        "cashflow": {},
+    }
+
+    data_source = IndustrialSentinelDataSource(
+        industry_data_source=industry_source,
+        financial_data_source=financial_source,
+        cache_dir=tmp_path,
+    )
+
+    data = data_source.get_data("000700.SZ")
+
+    assert data["industry_result"]["status"] == "preset_only"
+    assert data["industry_result"]["preset"] == "robotics"
+    assert data["industry_result"]["source"] == "local_preset_routing"
+    assert data["industry_from_cache"] is False
+    assert data["financial_data"] is None
+    assert any("本地 preset 路由" in reason for reason in data["degradation_reasons"])
+    assert any("财务数据缺失" in reason for reason in data["degradation_reasons"])
 
 
 # ═══════════════════════════════════════════════════

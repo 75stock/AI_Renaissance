@@ -1,5 +1,5 @@
 #!/bin/bash
-# Industrial Sentinel V4.5 Pipeline 启动脚本
+# Industrial Sentinel Pipeline 启动脚本
 # 用法: ./run.sh <股票代码/名称> [选项]
 # 示例: ./run.sh 002916.SZ
 #       ./run.sh 002916.SZ --preset pcb
@@ -12,7 +12,7 @@ PIPELINE="$SCRIPT_DIR/core/pipeline.py"
 
 show_help() {
     cat << 'EOF'
-Industrial Sentinel V4.5 Pipeline
+Industrial Sentinel Pipeline
 产业链中观分析框架 — 真实数据驱动
 
 用法:
@@ -37,7 +37,7 @@ Industrial Sentinel V4.5 Pipeline
     L5 应用:       robotics
 
 自动检测逻辑（多轮查询）:
-    轮1: 查内置映射表（覆盖100+常见标的）
+    轮1: 查本地 preset 路由表（覆盖常见标的，只用于选择分析框架）
     轮2: 查 akshare 申万行业（如果环境有）
     轮3: 查东方财富API
     轮4: 查腾讯API获取名称+关键词匹配
@@ -136,7 +136,7 @@ fi
 
 # 执行
 echo "=================================================="
-echo "Industrial Sentinel V4.5"
+echo "Industrial Sentinel"
 echo "目标: $STOCK_INPUT"
 if [ -n "$FORCE_PRESET" ]; then
     echo "Preset: $FORCE_PRESET（强制指定）"
